@@ -1,0 +1,43 @@
+From fe4522af7f1c5dadfeaf8513dd584c66854d612b Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 00:43:55 +0800
+Subject: [PATCH 029/111] oci:  add oom_extend to proc masked path
+
+reason: cherry-pick commits to docker-18.09
+
+reason:add oom_extend to proc masked path
+
+Change-Id: I4b9c3dd94b6d68d753e9aad0879949b310fe7180
+Signed-off-by: dengguangxing <dengguangxing@huawei.com>
+Signed-off-by: Haomin <caihaomin@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+---
+ components/engine/oci/defaults.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index de0088c4bb..74d3fdb2d8 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -116,6 +116,7 @@ func DefaultLinuxSpec() specs.Spec {
+ 	s.Linux = &specs.Linux{
+ 		MaskedPaths: []string{
+ 			"/proc/acpi",
++			"/proc/config.gz",
+ 			"/proc/kcore",
+ 			"/proc/keys",
+ 			"/proc/latency_stats",
+@@ -127,6 +128,10 @@ func DefaultLinuxSpec() specs.Spec {
+ 			"/proc/fdthreshold",
+ 			"/proc/fdstat",
+ 			"/proc/fdenable",
++			"/proc/signo",
++			"/proc/sig_catch",
++			"/proc/kbox",
++			"/proc/oom_extend",
+ 			"/sys/firmware",
+ 		},
+ 		ReadonlyPaths: []string{
+-- 
+2.17.1
+

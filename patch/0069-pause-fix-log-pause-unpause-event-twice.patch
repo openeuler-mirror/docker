@@ -1,0 +1,108 @@
+From a6db97d2574d509b2077236ff48d70c3469a042e Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sun, 20 Jan 2019 16:39:08 +0800
+Subject: [PATCH 069/111] pause:  fix log pause/unpause event twice
+
+reason: fix pause/unpause log event twice
+
+Change-Id: If136d713afd37806256500d4760d0a344f7c5d92
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/monitor.go | 36 ++++++++++++++++++-----------
+ components/engine/daemon/pause.go   |  7 ------
+ components/engine/daemon/unpause.go |  6 -----
+ 3 files changed, 22 insertions(+), 27 deletions(-)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index 807cdcaa89..51159eb76d 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -167,28 +167,36 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 		c.Lock()
+ 		defer c.Unlock()
+ 
+-		if !c.Paused {
+-			c.Paused = true
+-			daemon.setStateCounter(c)
+-			daemon.updateHealthMonitor(c)
+-			if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+-				return err
++		if daemon.IsNativeRuntime(c.HostConfig.Runtime) {
++			logrus.Infof("Pause is moved to docker, skip.")
++		} else {
++			if !c.Paused {
++				c.Paused = true
++				daemon.setStateCounter(c)
++				daemon.updateHealthMonitor(c)
++				if err := c.CheckpointTo(daemon.containersReplica); err != nil {
++					return err
++				}
++				daemon.LogContainerEvent(c, "pause")
+ 			}
+-			daemon.LogContainerEvent(c, "pause")
+ 		}
+ 	case libcontainerd.EventResumed:
+ 		c.Lock()
+ 		defer c.Unlock()
+ 
+-		if c.Paused {
+-			c.Paused = false
+-			daemon.setStateCounter(c)
+-			daemon.updateHealthMonitor(c)
++		if daemon.IsNativeRuntime(c.HostConfig.Runtime) {
++			logrus.Infof("Pause is moved to docker, skip.")
++		} else {
++			if c.Paused {
++				c.Paused = false
++				daemon.setStateCounter(c)
++				daemon.updateHealthMonitor(c)
+ 
+-			if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+-				return err
++				if err := c.CheckpointTo(daemon.containersReplica); err != nil {
++					return err
++				}
++				daemon.LogContainerEvent(c, "unpause")
+ 			}
+-			daemon.LogContainerEvent(c, "unpause")
+ 		}
+ 	}
+ 	return nil
+diff --git a/components/engine/daemon/pause.go b/components/engine/daemon/pause.go
+index 6f9d8b0f70..494aa326d9 100644
+--- a/components/engine/daemon/pause.go
++++ b/components/engine/daemon/pause.go
+@@ -48,13 +48,6 @@ func (daemon *Daemon) containerPause(container *container.Container) error {
+ 		if err := freezer.Pause(); err != nil {
+ 			return fmt.Errorf("Cannot pause container %s: %v", container.ID, err)
+ 		}
+-
+-		container.Paused = true
+-		daemon.setStateCounter(container)
+-		if err := container.CheckpointTo(daemon.containersReplica); err != nil {
+-			return err
+-		}
+-		daemon.LogContainerEvent(container, "pause")
+ 	} else {
+ 		if err := daemon.containerd.Pause(context.Background(), container.ID); err != nil {
+ 			return fmt.Errorf("Cannot pause container %s: %s", container.ID, err)
+diff --git a/components/engine/daemon/unpause.go b/components/engine/daemon/unpause.go
+index 2d3c056566..a75589b888 100644
+--- a/components/engine/daemon/unpause.go
++++ b/components/engine/daemon/unpause.go
+@@ -41,12 +41,6 @@ func (daemon *Daemon) containerUnpause(container *container.Container) error {
+ 		if err := freezer.Resume(); err != nil {
+ 			return fmt.Errorf("Cannot unpause container %s: %s", container.ID, err)
+ 		}
+-		container.Paused = false
+-		daemon.setStateCounter(container)
+-		if err := container.CheckpointTo(daemon.containersReplica); err != nil {
+-			return err
+-		}
+-		daemon.LogContainerEvent(container, "unpause")
+ 	} else {
+ 		if err := daemon.containerd.Resume(context.Background(), container.ID); err != nil {
+ 			return fmt.Errorf("Cannot unpause container %s: %s", container.ID, err)
+-- 
+2.17.1
+

@@ -1,0 +1,361 @@
+From 49a3cd1ceb6956bd7787135a7938543d64d30638 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 14:02:32 +0800
+Subject: [PATCH 039/111] restart:  -- Remove redundant Mounts when
+ start docker daemon
+
+reason: cherry-pick commits to docker-18.09
+
+merge from
+b192ce147d * Remove redundant Mounts when start docker daemon
+8b031c9488 * devicemapper: remove redundant mountpoint when docker
+restart
+9a3c14633e * Revert "devicemapper: remove redundant mountpoint when
+docker restart"
+7bbda93537 * devicemapper: remove redundant mountpoint when docker
+restart
+0be4e475d7 * remove redundant containers/xxx/shm mountpoint
+d4adbe2bf7 * Remove redundant overlay2 mountpoints
+
+---
+Remove redundant Mounts when start docker daemon
+
+
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+---
+devicemapper: remove redundant mountpoint when docker restart
+
+Modify the regexp patterns in `getIdPatterns` in order to match
+`/var/lib/docker/devicemapper/mnt/xxx-init`.
+
+Fix #254
+
+Signed-off-by: Yuanhong Peng <pengyuanhong@huawei.com>
+---
+Revert "devicemapper: remove redundant mountpoint when docker restart"
+
+With this commit, daemon will restart with error:
+```
+level=error msg="devmapper: Error unmounting device
+0019325b1b09c75da1c9c97dcffdc024498d318b2c148e4ebe67b1cda4ac446e:
+devmapper: Unknown device
+0019325b1b09c75da1c9c97dcffdc024498d318b2c148e4ebe67b1cda4ac446e"
+```
+Here, the redundant device is `xxx-init` not `xxx`.
+
+This reverts commit 8b031c9488236a9a808be7aed4cce69786dec010.
+
+Signed-off-by: Yuanhong Peng <pengyuanhong@huawei.com>
+---
+devicemapper: remove redundant mountpoint when docker restart
+
+Modify the regexp patterns in `getIdPatterns` in order to match
+`/var/lib/docker/devicemapper/mnt/xxx-init`.
+
+Fix #254
+
+Signed-off-by: Yuanhong Peng <pengyuanhong@huawei.com>
+---
+remove redundant containers/xxx/shm mountpoint
+
+fix problems caused by killing docker daemon when running a container
+once restarted, docker ps shows container in created status but failed
+to rm it with `container/xxx/shm device or resource busy`
+
+
+Signed-off-by: Deng Guangxing <dengguangxing@huawei.com>
+---
+Remove redundant overlay2 mountpoints
+
+Modify the regexp patterns in `getIdPatterns` in order to match
+/var/lib/docker/overlay2/xxx/merged.
+
+Signed-off-by: Yuanhong Peng <pengyuanhong@huawei.com>
+---
+Signed-off-by: jingrui <jingrui@huawei.com>
+
+Change-Id: I4859d9cca731477fc64be6772d8c4b89a000f1b5
+---
+ components/engine/daemon/daemon.go            |   6 +
+ components/engine/daemon/daemon_unix.go       | 132 ++++++++++++++++++
+ components/engine/daemon/daemon_unix_test.go  |  29 ++++
+ components/engine/daemon/daemon_windows.go    |   4 +
+ components/engine/daemon/images/service.go    |   4 +
+ .../engine/distribution/xfer/download_test.go |   4 +
+ components/engine/layer/layer.go              |   1 +
+ components/engine/layer/layer_store.go        |   4 +
+ 8 files changed, 184 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index a058688dd3..b207709f7c 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -486,6 +486,12 @@ func (daemon *Daemon) restore() error {
+ 	}
+ 	wg.Wait()
+ 
++	err = daemon.removeRedundantMounts(containers)
++	if err != nil {
++		// just print error info
++		logrus.Errorf("removeRedundantMounts failed %v", err)
++	}
++
+ 	containerIDs := make(map[string]struct{})
+ 	for cid, _ := range containers {
+ 		containerIDs[cid] = struct{}{}
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 8ffdd0009a..d4a32a0b25 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -10,6 +10,7 @@ import (
+ 	"net"
+ 	"os"
+ 	"path/filepath"
++	"regexp"
+ 	"runtime"
+ 	"runtime/debug"
+ 	"strconv"
+@@ -1587,3 +1588,134 @@ func (daemon *Daemon) setupSeccompProfile() error {
+ 	}
+ 	return nil
+ }
++
++func getIdPatterns(id string) (regexps []*regexp.Regexp) {
++	var patterns []string
++	if id == "" {
++		id = "(?P<id>[0-9a-f]{64})"
++	}
++	patterns = append(patterns, "aufs/mnt/"+id+"(-init)?"+"$", "overlay/"+id+"(-init)?"+"/merged$", "overlay2/"+id+"(-init)?"+"/merged$", "zfs/graph/"+id+"(-init)?"+"$", "devicemapper/mnt/"+id+"(-init)?"+"$")
++	for _, p := range patterns {
++		r, err := regexp.Compile(p)
++		if err == nil {
++			regexps = append(regexps, r)
++		}
++	}
++	return
++}
++
++func getContainerMountId(path string) (bool, string) {
++	regs := getIdPatterns("")
++	for _, reg := range regs {
++		ret := reg.FindStringSubmatch(path)
++		if len(ret) == 3 {
++			if ret[2] == "" {
++				return false, ret[1]
++			} else {
++				return true, ret[1]
++			}
++		}
++	}
++	return false, ""
++}
++
++func isContainerMount(path string) (bool, string) {
++	var regs []*regexp.Regexp
++	var patterns []string
++	var id = "(?P<id>[0-9a-f]{64})"
++
++	// TODO: fill in patterns with other mounts info
++	patterns = append(patterns, "containers/"+id+"/shm$")
++	for _, p := range patterns {
++		r, err := regexp.Compile(p)
++		if err == nil {
++			regs = append(regs, r)
++		}
++	}
++
++	for _, reg := range regs {
++		ret := reg.FindStringSubmatch(path)
++		if len(ret) == 2 {
++			return true, ret[1]
++		}
++	}
++	return false, ""
++}
++
++func (daemon *Daemon) removeRedundantMounts(containers map[string]*container.Container) error {
++	var (
++		isShmMount, isInitdev bool
++		id                    string
++		redundantMounts       = map[string]bool{}
++	)
++
++	// Get redundant Mounts
++	f, err := os.Open("/proc/self/mountinfo")
++	if err != nil {
++		return err
++	}
++	defer f.Close()
++
++	activeContainers := map[string]string{}
++	for _, c := range containers {
++		if c.IsRunning() && !c.IsRestarting() {
++			activeContainers[c.ID] = c.ID
++			if mountid, err := daemon.imageService.GetLayerMountID(c.ID, c.OS); err == nil {
++				activeContainers[mountid] = c.ID
++				logrus.Debugf("removeRedundantMounts, mountid %s, containerID %s\n", mountid, c.ID)
++			}
++		}
++	}
++	root := filepath.Join(daemon.root, daemon.imageService.GraphDriverForOS(runtime.GOOS))
++	scanner := bufio.NewScanner(f)
++	for scanner.Scan() {
++		text := scanner.Text()
++		fields := strings.Split(text, " ")
++		if len(fields) < 5 {
++			return fmt.Errorf("%s", "/proc/self/mountinfo format err")
++		}
++		path := fields[4]
++		if !strings.HasPrefix(path, daemon.root) || path == root {
++			continue
++		}
++
++		isShmMount, id = isContainerMount(path)
++		if !isShmMount {
++			isInitdev, id = getContainerMountId(path)
++		}
++		if id == "" {
++			continue
++		}
++
++		if _, ok := activeContainers[id]; !ok {
++			if isShmMount {
++				redundantMounts[path] = true
++			} else {
++				if isInitdev {
++					id = fmt.Sprintf("%s-init", id)
++				}
++				redundantMounts[id] = false
++			}
++		}
++	}
++	if err := scanner.Err(); err != nil {
++		return err
++	}
++
++	// Remove redundant Mounts
++	for path, shm := range redundantMounts {
++		var (
++			err error
++		)
++		logrus.Debugf("Umount legacy mountpoint [%s]", path)
++		if shm {
++			err = mount.Unmount(path)
++		} else {
++			err = daemon.imageService.DriverPut(runtime.GOOS, path)
++		}
++		if err != nil {
++			logrus.Debugf("Umount legacy mountpoint: %s failed with %s", path, err)
++		}
++	}
++	return err
++}
+diff --git a/components/engine/daemon/daemon_unix_test.go b/components/engine/daemon/daemon_unix_test.go
+index 36c6030988..d9bba54a93 100644
+--- a/components/engine/daemon/daemon_unix_test.go
++++ b/components/engine/daemon/daemon_unix_test.go
+@@ -266,3 +266,32 @@ func TestNetworkOptions(t *testing.T) {
+ 		t.Fatal("Expected networkOptions error, got nil")
+ 	}
+ }
++
++func TestGetContainerMountId(t *testing.T) {
++	id := "56e143922c405419a38b23bfbccc92284f35525e3f2ad7011ea904501ccd1219"
++
++	id1 := getContainerMountId("/var/lib/docker/aufs/mnt/" + id)
++	if id1 != id {
++		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
++	}
++
++	id1 = getContainerMountId("/var/lib/docker/devicemapper/mnt/" + id)
++	if id1 != id {
++		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
++	}
++
++	id1 = getContainerMountId("/var/lib/docker/overlay/" + id + "/merged")
++	if id1 != id {
++		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
++	}
++
++	id1 = getContainerMountId("/var/lib/docker/zfs/graph/" + id)
++	if id1 != id {
++		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
++	}
++
++	id1 = getContainerMountId("/var/lib/docker/devicemapper_err/mnt" + id)
++	if id1 != "" {
++		t.Fatalf("Expected a empty container mount id, but got [%s]", id1)
++	}
++}
+diff --git a/components/engine/daemon/daemon_windows.go b/components/engine/daemon/daemon_windows.go
+index 4812236bc2..9d895b3dfa 100644
+--- a/components/engine/daemon/daemon_windows.go
++++ b/components/engine/daemon/daemon_windows.go
+@@ -657,3 +657,7 @@ func (daemon *Daemon) initRuntimes(_ map[string]types.Runtime) error {
+ 
+ func setupResolvConf(config *config.Config) {
+ }
++
++func (daemon *Daemon) removeRedundantMounts(containers map[string]*container.Container) error {
++	return nil
++}
+diff --git a/components/engine/daemon/images/service.go b/components/engine/daemon/images/service.go
+index 8d187e2603..e43a4c6651 100644
+--- a/components/engine/daemon/images/service.go
++++ b/components/engine/daemon/images/service.go
+@@ -193,6 +193,10 @@ func (i *ImageService) ReleaseLayer(rwlayer layer.RWLayer, containerOS string) e
+ 	return nil
+ }
+ 
++func (i *ImageService) DriverPut(os string, path string) error {
++	return i.layerStores[os].DriverPut(path)
++}
++
+ // LayerDiskUsage returns the number of bytes used by layer stores
+ // called from disk_usage.go
+ func (i *ImageService) LayerDiskUsage(ctx context.Context) (int64, error) {
+diff --git a/components/engine/distribution/xfer/download_test.go b/components/engine/distribution/xfer/download_test.go
+index 91153591ed..c4c4aefba9 100644
+--- a/components/engine/distribution/xfer/download_test.go
++++ b/components/engine/distribution/xfer/download_test.go
+@@ -146,6 +146,10 @@ func (ls *mockLayerStore) Cleanup() error {
+ 	return nil
+ }
+ 
++func (ls *mockLayerStore) DriverPut(id string) error {
++	return nil
++}
++
+ func (ls *mockLayerStore) DriverStatus() [][2]string {
+ 	return [][2]string{}
+ }
+diff --git a/components/engine/layer/layer.go b/components/engine/layer/layer.go
+index 425006854d..cb13c98d0b 100644
+--- a/components/engine/layer/layer.go
++++ b/components/engine/layer/layer.go
+@@ -191,6 +191,7 @@ type Store interface {
+ 	ReleaseRWLayer(RWLayer) ([]Metadata, error)
+ 
+ 	Cleanup() error
++	DriverPut(id string) error
+ 	DriverStatus() [][2]string
+ 	DriverName() string
+ 	CleanupRedundant(map[string]struct{}) error
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index 351f787b87..5decb0bdce 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -807,6 +807,10 @@ func (ls *layerStore) Cleanup() error {
+ 	return ls.driver.Cleanup()
+ }
+ 
++func (ls *layerStore) DriverPut(id string) error {
++	return ls.driver.Put(id)
++}
++
+ func (ls *layerStore) DriverStatus() [][2]string {
+ 	return ls.driver.Status()
+ }
+-- 
+2.17.1
+

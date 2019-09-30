@@ -1,0 +1,53 @@
+From c5a18b46152c4c7016c0c2f0054e276a53f25e1f Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:14:09 +0800
+Subject: [PATCH 006/111] prjquota: overlay2 quota control backward
+ compability
+
+reason: In Euleros docker we support default quota control limit
+for daemon with commit
+ docker:  Add options to surport default limit for daemon
+However in mainstream they have similar commit
+ 35903110 Add overlay2.size daemon storage-opt
+But mainstream uses different api `overlay2.size` compares with
+`overlay2.basesize`, so adding this backward compability.
+
+Change-Id: I36a548bd7f1ce6fab6cad24cfb49faa56f7a1fd1
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/graphdriver/overlay2/overlay.go | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 96f44ba9a1..b969582eb3 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -248,6 +248,7 @@ func parseOptions(options []string) (*overlayOptions, error) {
+ 				return nil, err
+ 			}
+ 		case "overlay2.size":
++		case "overlay2.basesize":
+ 			size, err := units.RAMInBytes(val)
+ 			if err != nil {
+ 				return nil, err
+@@ -394,12 +395,16 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 		}
+ 	}()
+ 
+-	if opts != nil && len(opts.StorageOpt) > 0 {
++	if (opts != nil && len(opts.StorageOpt) > 0) || d.options.quota.Size > 0 {
+ 		driver := &Driver{}
+ 		if err := d.parseStorageOpt(opts.StorageOpt, driver); err != nil {
+ 			return err
+ 		}
+ 
++		if driver.options.quota.Size == 0 && d.options.quota.Size > 0 {
++			driver.options.quota.Size = d.options.quota.Size
++		}
++
+ 		if driver.options.quota.Size > 0 {
+ 			// Set container disk quota limit
+ 			if err := d.quotaCtl.SetQuota(dir, driver.options.quota); err != nil {
+-- 
+2.17.1
+

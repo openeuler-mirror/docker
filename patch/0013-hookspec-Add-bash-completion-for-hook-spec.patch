@@ -1,0 +1,31 @@
+From e261cd646bd656db1eae5a3bcb4af59af3423a46 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:16:09 +0800
+Subject: [PATCH 013/111] hookspec:  Add bash completion for
+ --hook-spec
+
+reason: Add bash completion for --hook-spec
+
+Change-Id: Ic2cf226576a5437aa69b48edb73737c59f116ae8
+Signed-off-by: Zhang Wei <zhangwei555@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/cli/contrib/completion/bash/docker | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/cli/contrib/completion/bash/docker b/components/cli/contrib/completion/bash/docker
+index 2e2c8cb04f..9012988075 100644
+--- a/components/cli/contrib/completion/bash/docker
++++ b/components/cli/contrib/completion/bash/docker
+@@ -1791,6 +1791,7 @@ _docker_container_run_and_create() {
+ 		--expose
+ 		--files-limit
+ 		--group-add
++		--hook-spec
+ 		--health-cmd
+ 		--health-interval
+ 		--health-retries
+-- 
+2.17.1
+

@@ -1,0 +1,42 @@
+From 412b8a34a2aa40ddf6f9b507142c4793922cedf5 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:22:46 +0800
+Subject: [PATCH 022/111] umask:  fix nil pointer on c.Annotations in
+ setUmask
+
+reason: c.Annotations should be check before using in setUmask().
+When "/create" request is sent via restful api, the c.Annotations
+is nil, so **nil map** happens in setUmask.
+
+Change-Id: Idafa2d8d1f54c1ebc34a6380d64c1cd7efad0266
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/create.go | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/daemon/create.go b/components/engine/daemon/create.go
+index fa000c2208..b57b01eacc 100644
+--- a/components/engine/daemon/create.go
++++ b/components/engine/daemon/create.go
+@@ -86,10 +86,15 @@ func (daemon *Daemon) setUmask(c *containertypes.Config) error {
+ 		if val != umaskNormal && val != umaskSecure {
+ 			return fmt.Errorf("native.umask option %s not supported", val)
+ 		}
+-	} else if UsingNormalUmask(daemon.configStore) {
+-		c.Annotations["native.umask"] = umaskNormal
+ 	} else {
+-		c.Annotations["native.umask"] = umaskSecure
++		if c.Annotations == nil {
++			c.Annotations = make(map[string]string)
++		}
++		if UsingNormalUmask(daemon.configStore) {
++			c.Annotations["native.umask"] = umaskNormal
++		} else {
++			c.Annotations["native.umask"] = umaskSecure
++		}
+ 	}
+ 
+ 	return nil
+-- 
+2.17.1
+

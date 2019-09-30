@@ -1,0 +1,62 @@
+From 99b7f823b7dfe88dc2d4f4073f10cbf3a437bd81 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Fri, 25 Jan 2019 16:59:26 +0800
+Subject: [PATCH 086/111] restart:  fix daemon restart with
+ restart=always container
+
+reason: fix daemon gracefully restart while container is start with
+restart=always. restart-manager blocked to start container while
+restoring, when restoring start container successful, the
+restart-manager will start container but error with "id already in use".
+
+related testcase:
+TestDaemonRestartKillContainers
+TestDockerNetworkHostModeUngracefulDaemonRestart
+
+ref:
+- https://github.com/moby/moby/issues/38249
+
+Change-Id: I2545286a8371cb656ec6574d23cd15de4ba60283
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/daemon_unix.go | 3 +++
+ components/engine/daemon/start.go       | 9 +++++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index b20c66e27b..9abc9a329a 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -1291,6 +1291,9 @@ func setupDaemonRootPropagation(cfg *config.Config) error {
+ 		return nil
+ 	}
+ 
++	if err := os.MkdirAll(filepath.Dir(cleanupFile), 0700); err != nil {
++		return errors.Wrap(err, "error mkdir parent to signal mount cleanup on shutdown")
++	}
+ 	if err := ioutil.WriteFile(cleanupFile, nil, 0600); err != nil {
+ 		return errors.Wrap(err, "error writing file to signal mount cleanup on shutdown")
+ 	}
+diff --git a/components/engine/daemon/start.go b/components/engine/daemon/start.go
+index c00bd9ceb2..96ae45e11e 100644
+--- a/components/engine/daemon/start.go
++++ b/components/engine/daemon/start.go
+@@ -108,6 +108,15 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint
+ 		return nil
+ 	}
+ 
++	// fix restartManager restarted the container is already started by restore.
++	if container.Running {
++		_, err := daemon.containerd.Status(context.Background(), container.ID)
++		if err == nil {
++			logrus.Warnf("skip starting the container is exist and running.")
++			return nil
++		}
++	}
++
+ 	if container.RemovalInProgress || container.Dead {
+ 		return errdefs.Conflict(errors.New("container is marked for removal and cannot be started"))
+ 	}
+-- 
+2.17.1
+

@@ -1,0 +1,368 @@
+From a671cf961c82749cd9025e3e9cce772650134a67 Mon Sep 17 00:00:00 2001
+From: Liu Hua <sdu.liu@huawei.com>
+Date: Thu, 6 Jun 2019 01:13:08 -0400
+Subject: [PATCH] docker  Support compress when saving images
+
+If add option `-c` when executing command `docker save`,
+layer.tar in exported archive will be compressed with
+algorithm gzip. Usage like this(we can use command `file`
+to check format of the layer.tar):
+
+```
+$ docker save -c -o redis.tar redis
+$ tar xvf redis.tar
+09b9c5a923b810cc524ec5abf9dd65f796e37397005906b5d81c919bf63cb123/
+09b9c5a923b810cc524ec5abf9dd65f796e37397005906b5d81c919bf63cb123/VERSION
+09b9c5a923b810cc524ec5abf9dd65f796e37397005906b5d81c919bf63cb123/json
+09b9c5a923b810cc524ec5abf9dd65f796e37397005906b5d81c919bf63cb123/layer.tar
+7613529f37fd6709b0d850a8ebecd13c069a9cb2bbf67babea0769c68172c5c9/
+7613529f37fd6709b0d850a8ebecd13c069a9cb2bbf67babea0769c68172c5c9/VERSION
+7613529f37fd6709b0d850a8ebecd13c069a9cb2bbf67babea0769c68172c5c9/json
+7613529f37fd6709b0d850a8ebecd13c069a9cb2bbf67babea0769c68172c5c9/layer.tar
+846767a44c632a336d7204fb30e9215c84fb1ae1df81a557f78e0fc4d1842130/
+846767a44c632a336d7204fb30e9215c84fb1ae1df81a557f78e0fc4d1842130/VERSION
+846767a44c632a336d7204fb30e9215c84fb1ae1df81a557f78e0fc4d1842130/json
+846767a44c632a336d7204fb30e9215c84fb1ae1df81a557f78e0fc4d1842130/layer.tar
+98ee6000320c9e7de792f9c17ac39233abd1881bb127f8227719740981742d7e/
+98ee6000320c9e7de792f9c17ac39233abd1881bb127f8227719740981742d7e/VERSION
+98ee6000320c9e7de792f9c17ac39233abd1881bb127f8227719740981742d7e/json
+98ee6000320c9e7de792f9c17ac39233abd1881bb127f8227719740981742d7e/layer.tar
+a82ad3e3c9cd9fafcb310870d070fe293448e5a6d5681eafe54c88cb486038fc/
+a82ad3e3c9cd9fafcb310870d070fe293448e5a6d5681eafe54c88cb486038fc/VERSION
+a82ad3e3c9cd9fafcb310870d070fe293448e5a6d5681eafe54c88cb486038fc/json
+a82ad3e3c9cd9fafcb310870d070fe293448e5a6d5681eafe54c88cb486038fc/layer.tar
+b047187f532984ce5e2b53a06c09f2621457939f87472673f35d15391ca58188/
+b047187f532984ce5e2b53a06c09f2621457939f87472673f35d15391ca58188/VERSION
+b047187f532984ce5e2b53a06c09f2621457939f87472673f35d15391ca58188/json
+b047187f532984ce5e2b53a06c09f2621457939f87472673f35d15391ca58188/layer.tar
+d4f259423416b3c82b46e1caf01829ac3a99a211dfc691c9d862464768112e7f.json
+manifest.json
+repositories
+$ file
+b047187f532984ce5e2b53a06c09f2621457939f87472673f35d15391ca58188/layer.tar
+b047187f532984ce5e2b53a06c09f2621457939f87472673f35d15391ca58188/layer.tar:
+gzip compressed data
+```
+
+Change-Id: I9069b5346e4990e90c2f4724841dc3b4f6f5579f
+Signed-off-by: Fengtu Wang <wangfengtu@huawei.com>
+Signed-off-by: Liu Hua <sdu.liu@huawei.com>
+---
+ .../cli/cli/command/image/client_test.go       |  2 +-
+ components/cli/cli/command/image/save.go       |  8 +++++---
+ .../docker/docker/client/image_save.go         |  6 +++++-
+ .../docker/docker/client/interface.go          |  2 +-
+ .../engine/api/server/router/image/backend.go  |  2 +-
+ .../api/server/router/image/image_routes.go    |  4 +++-
+ components/engine/client/image_save.go         |  6 +++++-
+ components/engine/client/image_save_test.go    |  4 ++--
+ components/engine/client/interface.go          |  2 +-
+ .../engine/daemon/images/image_exporter.go     |  4 ++--
+ components/engine/distribution/push.go         |  2 +-
+ components/engine/distribution/push_v2.go      |  2 +-
+ components/engine/image/image.go               |  2 +-
+ components/engine/image/tarexport/save.go      | 18 +++++++++++++++---
+ .../plugin/authz/authz_plugin_test.go          |  2 +-
+ .../engine/internal/test/daemon/daemon.go      |  2 +-
+ 16 files changed, 46 insertions(+), 22 deletions(-)
+
+diff --git a/components/cli/cli/command/image/client_test.go b/components/cli/cli/command/image/client_test.go
+index 50e46f4ec1..aa1bf13611 100644
+--- a/components/cli/cli/command/image/client_test.go
++++ b/components/cli/cli/command/image/client_test.go
+@@ -37,7 +37,7 @@ func (cli *fakeClient) ImageTag(_ context.Context, image, ref string) error {
+ 	return nil
+ }
+ 
+-func (cli *fakeClient) ImageSave(_ context.Context, images []string) (io.ReadCloser, error) {
++func (cli *fakeClient) ImageSave(_ context.Context, images []string, compress bool) (io.ReadCloser, error) {
+ 	if cli.imageSaveFunc != nil {
+ 		return cli.imageSaveFunc(images)
+ 	}
+diff --git a/components/cli/cli/command/image/save.go b/components/cli/cli/command/image/save.go
+index ef23ca1bb1..e1b4a21482 100644
+--- a/components/cli/cli/command/image/save.go
++++ b/components/cli/cli/command/image/save.go
+@@ -13,8 +13,9 @@ import (
+ )
+ 
+ type saveOptions struct {
+-	images []string
+-	output string
++	images   []string
++	output   string
++	compress bool
+ }
+ 
+ // NewSaveCommand creates a new `docker save` command
+@@ -34,6 +35,7 @@ func NewSaveCommand(dockerCli command.Cli) *cobra.Command {
+ 	flags := cmd.Flags()
+ 
+ 	flags.StringVarP(&opts.output, "output", "o", "", "Write to a file, instead of STDOUT")
++	flags.BoolVarP(&opts.compress, "compress", "c", false, "Compress layers when saving images")
+ 
+ 	return cmd
+ }
+@@ -48,7 +50,7 @@ func RunSave(dockerCli command.Cli, opts saveOptions) error {
+ 		return errors.Wrap(err, "failed to save image")
+ 	}
+ 
+-	responseBody, err := dockerCli.Client().ImageSave(context.Background(), opts.images)
++	responseBody, err := dockerCli.Client().ImageSave(context.Background(), opts.images, opts.compress)
+ 	if err != nil {
+ 		return err
+ 	}
+diff --git a/components/cli/vendor/github.com/docker/docker/client/image_save.go b/components/cli/vendor/github.com/docker/docker/client/image_save.go
+index d1314e4b22..2bbea0f8ff 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/image_save.go
++++ b/components/cli/vendor/github.com/docker/docker/client/image_save.go
+@@ -8,11 +8,15 @@ import (
+ 
+ // ImageSave retrieves one or more images from the docker host as an io.ReadCloser.
+ // It's up to the caller to store the images and close the stream.
+-func (cli *Client) ImageSave(ctx context.Context, imageIDs []string) (io.ReadCloser, error) {
++func (cli *Client) ImageSave(ctx context.Context, imageIDs []string, compress bool) (io.ReadCloser, error) {
+ 	query := url.Values{
+ 		"names": imageIDs,
+ 	}
+ 
++	if compress {
++		query.Set("compress", "1")
++	}
++
+ 	resp, err := cli.get(ctx, "/images/get", query, nil)
+ 	if err != nil {
+ 		return nil, err
+diff --git a/components/cli/vendor/github.com/docker/docker/client/interface.go b/components/cli/vendor/github.com/docker/docker/client/interface.go
+index b2d5d7bb72..e68f9f6264 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/interface.go
++++ b/components/cli/vendor/github.com/docker/docker/client/interface.go
+@@ -98,7 +98,7 @@ type ImageAPIClient interface {
+ 	ImagePush(ctx context.Context, ref string, options types.ImagePushOptions) (io.ReadCloser, error)
+ 	ImageRemove(ctx context.Context, image string, options types.ImageRemoveOptions) ([]types.ImageDeleteResponseItem, error)
+ 	ImageSearch(ctx context.Context, term string, options types.ImageSearchOptions) ([]registry.SearchResult, error)
+-	ImageSave(ctx context.Context, images []string) (io.ReadCloser, error)
++	ImageSave(ctx context.Context, images []string, compress bool) (io.ReadCloser, error)
+ 	ImageTag(ctx context.Context, image, ref string) error
+ 	ImagesPrune(ctx context.Context, pruneFilter filters.Args) (types.ImagesPruneReport, error)
+ }
+diff --git a/components/engine/api/server/router/image/backend.go b/components/engine/api/server/router/image/backend.go
+index 5837f9a9bc..84509d301a 100644
+--- a/components/engine/api/server/router/image/backend.go
++++ b/components/engine/api/server/router/image/backend.go
+@@ -31,7 +31,7 @@ type imageBackend interface {
+ type importExportBackend interface {
+ 	LoadImage(inTar io.ReadCloser, outStream io.Writer, quiet bool) error
+ 	ImportImage(src string, repository, platform string, tag string, msg string, inConfig io.ReadCloser, outStream io.Writer, changes []string) error
+-	ExportImage(names []string, outStream io.Writer) error
++	ExportImage(names []string, compress bool, outStream io.Writer) error
+ }
+ 
+ type registryBackend interface {
+diff --git a/components/engine/api/server/router/image/image_routes.go b/components/engine/api/server/router/image/image_routes.go
+index 85707c06d2..b7bb340e9a 100644
+--- a/components/engine/api/server/router/image/image_routes.go
++++ b/components/engine/api/server/router/image/image_routes.go
+@@ -159,7 +159,9 @@ func (s *imageRouter) getImagesGet(ctx context.Context, w http.ResponseWriter, r
+ 		names = r.Form["names"]
+ 	}
+ 
+-	if err := s.backend.ExportImage(names, output); err != nil {
++	compress := httputils.BoolValueOrDefault(r, "compress", false)
++
++	if err := s.backend.ExportImage(names, compress, output); err != nil {
+ 		if !output.Flushed() {
+ 			return err
+ 		}
+diff --git a/components/engine/client/image_save.go b/components/engine/client/image_save.go
+index d1314e4b22..2bbea0f8ff 100644
+--- a/components/engine/client/image_save.go
++++ b/components/engine/client/image_save.go
+@@ -8,11 +8,15 @@ import (
+ 
+ // ImageSave retrieves one or more images from the docker host as an io.ReadCloser.
+ // It's up to the caller to store the images and close the stream.
+-func (cli *Client) ImageSave(ctx context.Context, imageIDs []string) (io.ReadCloser, error) {
++func (cli *Client) ImageSave(ctx context.Context, imageIDs []string, compress bool) (io.ReadCloser, error) {
+ 	query := url.Values{
+ 		"names": imageIDs,
+ 	}
+ 
++	if compress {
++		query.Set("compress", "1")
++	}
++
+ 	resp, err := cli.get(ctx, "/images/get", query, nil)
+ 	if err != nil {
+ 		return nil, err
+diff --git a/components/engine/client/image_save_test.go b/components/engine/client/image_save_test.go
+index a40055e583..7325da0c80 100644
+--- a/components/engine/client/image_save_test.go
++++ b/components/engine/client/image_save_test.go
+@@ -15,7 +15,7 @@ func TestImageSaveError(t *testing.T) {
+ 	client := &Client{
+ 		client: newMockClient(errorMock(http.StatusInternalServerError, "Server error")),
+ 	}
+-	_, err := client.ImageSave(context.Background(), []string{"nothing"})
++	_, err := client.ImageSave(context.Background(), []string{"nothing"}, false)
+ 	if err == nil || err.Error() != "Error response from daemon: Server error" {
+ 		t.Fatalf("expected a Server error, got %v", err)
+ 	}
+@@ -41,7 +41,7 @@ func TestImageSave(t *testing.T) {
+ 			}, nil
+ 		}),
+ 	}
+-	saveResponse, err := client.ImageSave(context.Background(), []string{"image_id1", "image_id2"})
++	saveResponse, err := client.ImageSave(context.Background(), []string{"image_id1", "image_id2"}, false)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+diff --git a/components/engine/client/interface.go b/components/engine/client/interface.go
+index d190f8e58d..5a7b9eb5b8 100644
+--- a/components/engine/client/interface.go
++++ b/components/engine/client/interface.go
+@@ -98,7 +98,7 @@ type ImageAPIClient interface {
+ 	ImagePush(ctx context.Context, ref string, options types.ImagePushOptions) (io.ReadCloser, error)
+ 	ImageRemove(ctx context.Context, image string, options types.ImageRemoveOptions) ([]types.ImageDeleteResponseItem, error)
+ 	ImageSearch(ctx context.Context, term string, options types.ImageSearchOptions) ([]registry.SearchResult, error)
+-	ImageSave(ctx context.Context, images []string) (io.ReadCloser, error)
++	ImageSave(ctx context.Context, images []string, compress bool) (io.ReadCloser, error)
+ 	ImageTag(ctx context.Context, image, ref string) error
+ 	ImagesPrune(ctx context.Context, pruneFilter filters.Args) (types.ImagesPruneReport, error)
+ }
+diff --git a/components/engine/daemon/images/image_exporter.go b/components/engine/daemon/images/image_exporter.go
+index 58105dcb71..dbe5811f30 100644
+--- a/components/engine/daemon/images/image_exporter.go
++++ b/components/engine/daemon/images/image_exporter.go
+@@ -11,9 +11,9 @@ import (
+ // stream. All images with the given tag and all versions containing
+ // the same tag are exported. names is the set of tags to export, and
+ // outStream is the writer which the images are written to.
+-func (i *ImageService) ExportImage(names []string, outStream io.Writer) error {
++func (i *ImageService) ExportImage(names []string, compress bool, outStream io.Writer) error {
+ 	imageExporter := tarexport.NewTarExporter(i.imageStore, i.layerStores, i.referenceStore, i)
+-	return imageExporter.Save(names, outStream)
++	return imageExporter.Save(names, compress, outStream)
+ }
+ 
+ // LoadImage uploads a set of images into the repository. This is the
+diff --git a/components/engine/distribution/push.go b/components/engine/distribution/push.go
+index eb3bc55974..ca49f22926 100644
+--- a/components/engine/distribution/push.go
++++ b/components/engine/distribution/push.go
+@@ -158,7 +158,7 @@ func Push(ctx context.Context, ref reference.Named, imagePushConfig *ImagePushCo
+ // is finished. This allows the caller to make sure the goroutine finishes
+ // before it releases any resources connected with the reader that was
+ // passed in.
+-func compress(in io.Reader) (io.ReadCloser, chan struct{}) {
++func Compress(in io.Reader) (io.ReadCloser, chan struct{}) {
+ 	compressionDone := make(chan struct{})
+ 
+ 	pipeReader, pipeWriter := io.Pipe()
+diff --git a/components/engine/distribution/push_v2.go b/components/engine/distribution/push_v2.go
+index 9dc3e7a2a6..f5922d65bf 100644
+--- a/components/engine/distribution/push_v2.go
++++ b/components/engine/distribution/push_v2.go
+@@ -447,7 +447,7 @@ func (pd *v2PushDescriptor) uploadUsingSession(
+ 
+ 	switch m := pd.layer.MediaType(); m {
+ 	case schema2.MediaTypeUncompressedLayer:
+-		compressedReader, compressionDone := compress(reader)
++		compressedReader, compressionDone := Compress(reader)
+ 		defer func(closer io.Closer) {
+ 			closer.Close()
+ 			<-compressionDone
+diff --git a/components/engine/image/image.go b/components/engine/image/image.go
+index 7e0646f072..bb6046b5ec 100644
+--- a/components/engine/image/image.go
++++ b/components/engine/image/image.go
+@@ -212,7 +212,7 @@ func NewHistory(author, comment, createdBy string, isEmptyLayer bool) History {
+ type Exporter interface {
+ 	Load(io.ReadCloser, io.Writer, bool) error
+ 	// TODO: Load(net.Context, io.ReadCloser, <- chan StatusMessage) error
+-	Save([]string, io.Writer) error
++	Save([]string, bool, io.Writer) error
+ }
+ 
+ // NewFromJSON creates an Image configuration from json.
+diff --git a/components/engine/image/tarexport/save.go b/components/engine/image/tarexport/save.go
+index 4e734b3503..0683f1704f 100644
+--- a/components/engine/image/tarexport/save.go
++++ b/components/engine/image/tarexport/save.go
+@@ -12,6 +12,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/docker/distribution"
++	dd "github.com/docker/docker/distribution"
+ 	"github.com/docker/distribution/reference"
+ 	"github.com/docker/docker/image"
+ 	"github.com/docker/docker/image/v1"
+@@ -35,9 +36,10 @@ type saveSession struct {
+ 	images      map[image.ID]*imageDescriptor
+ 	savedLayers map[string]struct{}
+ 	diffIDPaths map[layer.DiffID]string // cache every diffID blob to avoid duplicates
++	compress    bool
+ }
+ 
+-func (l *tarexporter) Save(names []string, outStream io.Writer) error {
++func (l *tarexporter) Save(names []string, compress bool, outStream io.Writer) error {
+ 	images, err := l.parseNames(names)
+ 	if err != nil {
+ 		return err
+@@ -45,7 +47,7 @@ func (l *tarexporter) Save(names []string, outStream io.Writer) error {
+ 
+ 	// Release all the image top layer references
+ 	defer l.releaseLayerReferences(images)
+-	return (&saveSession{tarexporter: l, images: images}).save(outStream)
++	return (&saveSession{tarexporter: l, images: images, compress: compress}).save(outStream)
+ }
+ 
+ // parseNames will parse the image names to a map which contains image.ID to *imageDescriptor.
+@@ -408,7 +410,17 @@ func (s *saveSession) saveLayer(id layer.ChainID, legacyImg image.V1Image, creat
+ 		}
+ 		defer arch.Close()
+ 
+-		if _, err := io.Copy(tarFile, arch); err != nil {
++		reader := arch
++		var compressionDone chan struct{}
++		if s.compress {
++			reader, compressionDone = dd.Compress(arch)
++			defer func(closer io.Closer) {
++				closer.Close()
++				<-compressionDone
++			}(reader)
++		}
++
++		if _, err := io.Copy(tarFile, reader); err != nil {
+ 			return distribution.Descriptor{}, err
+ 		}
+ 
+diff --git a/components/engine/integration/plugin/authz/authz_plugin_test.go b/components/engine/integration/plugin/authz/authz_plugin_test.go
+index 105affc1af..c740fc1dbd 100644
+--- a/components/engine/integration/plugin/authz/authz_plugin_test.go
++++ b/components/engine/integration/plugin/authz/authz_plugin_test.go
+@@ -435,7 +435,7 @@ func TestAuthzPluginEnsureContainerCopyToFrom(t *testing.T) {
+ 
+ func imageSave(client client.APIClient, path, image string) error {
+ 	ctx := context.Background()
+-	responseReader, err := client.ImageSave(ctx, []string{image})
++	responseReader, err := client.ImageSave(ctx, []string{image}, false)
+ 	if err != nil {
+ 		return err
+ 	}
+diff --git a/components/engine/internal/test/daemon/daemon.go b/components/engine/internal/test/daemon/daemon.go
+index 4f56dff9bb..f16a43de45 100644
+--- a/components/engine/internal/test/daemon/daemon.go
++++ b/components/engine/internal/test/daemon/daemon.go
+@@ -557,7 +557,7 @@ func (d *Daemon) LoadBusybox(t assert.TestingT) {
+ 	defer clientHost.Close()
+ 
+ 	ctx := context.Background()
+-	reader, err := clientHost.ImageSave(ctx, []string{"busybox:latest"})
++	reader, err := clientHost.ImageSave(ctx, []string{"busybox:latest"}, false)
+ 	assert.NilError(t, err, "failed to download busybox")
+ 	defer reader.Close()
+ 
+-- 
+2.17.1
+

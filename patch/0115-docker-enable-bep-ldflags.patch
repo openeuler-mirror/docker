@@ -1,0 +1,54 @@
+From 3fc47d106cc8648c6a2cb11ae68789b35dac10e2 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 11 Apr 2019 23:43:59 +0800
+Subject: [PATCH] docker:  enable bep ldflags
+
+Change-Id: Ib1a6f2a6a1c45f8eba4811e38469c26c6117128b
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/cli/scripts/build/dynbinary | 7 ++++++-
+ components/engine/hack/make/.binary    | 4 ++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+ mode change 100644 => 100755 components/engine/hack/make/.binary
+
+diff --git a/components/cli/scripts/build/dynbinary b/components/cli/scripts/build/dynbinary
+index 4feb7e71d8..c9f33be17b 100755
+--- a/components/cli/scripts/build/dynbinary
++++ b/components/cli/scripts/build/dynbinary
+@@ -9,6 +9,11 @@ source ./scripts/build/.variables
+ 
+ echo "Building dynamically linked $TARGET"
+ export CGO_ENABLED=1
+-go build -o "${TARGET}" -tags pkcs11 --ldflags "${LDFLAGS}" -buildmode=pie "${SOURCE}"
++
++BEP_DIR=/tmp/docker-build-bep
++BEP_FLAGS="-tmpdir=$BEP_DIR"
++mkdir -p $BEP_DIR
++
++go build -o "${TARGET}" -tags pkcs11 --ldflags " $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
+ 
+ ln -sf "$(basename "${TARGET}")" build/docker
+diff --git a/components/engine/hack/make/.binary b/components/engine/hack/make/.binary
+old mode 100644
+new mode 100755
+index 010c2c11da..7a203edf40
+--- a/components/engine/hack/make/.binary
++++ b/components/engine/hack/make/.binary
+@@ -60,10 +60,14 @@ case "$(go env GOOS)/$(go env GOARCH)" in
+ esac
+ 
+ echo "Building: $DEST/$BINARY_FULLNAME"
++BEP_DIR=/tmp/dockerd-build-bep
++BEP_FLAGS="-tmpdir=$BEP_DIR"
++mkdir -p $BEP_DIR
+ go build \
+ 	-o "$DEST/$BINARY_FULLNAME" \
+ 	"${BUILDFLAGS[@]}" \
+ 	-ldflags "
++		$BEP_FLAGS
+ 		$LDFLAGS
+ 		$LDFLAGS_STATIC_DOCKER
+ 		$DOCKER_LDFLAGS
+-- 
+2.17.1
+

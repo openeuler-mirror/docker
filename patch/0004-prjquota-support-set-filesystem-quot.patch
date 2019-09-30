@@ -1,0 +1,398 @@
+From a8f05692638bf50826ed9533f2a5282e2cde359d Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:13:41 +0800
+Subject: [PATCH 004/111] prjquota: support set filesystem
+ quota if ext4 support project quota
+
+reason:Support set filesystem quota if ext4 support project quota
+
+Change-Id: I99d28f248e758837cbf8b615e673ee7d8e36be7b
+Signed-off-by: Lei Jitang <leijitang@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/daemon_unix.go       |  19 ++
+ .../daemon/graphdriver/overlay2/overlay.go    |  10 +-
+ .../daemon/graphdriver/quota/projectquota.go  | 176 +++++++++++++++---
+ .../daemon/graphdriver/vfs/quota_linux.go     |  13 +-
+ 4 files changed, 191 insertions(+), 27 deletions(-)
+
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index b69eede21c..1b35df4950 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -633,6 +633,25 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
+ 		}
+ 	}
+ 
++	if hostConfig.StorageOpt != nil && daemon.imageService.GraphDriverForOS(runtime.GOOS) == "overlay2" {
++		_, exist := hostConfig.StorageOpt["size"]
++		if exist {
++			status := daemon.imageService.LayerStoreStatus()[runtime.GOOS]
++			if status[0][0] == "Backing Filesystem" && status[0][1] == "extfs" {
++				if hostConfig.Privileged {
++					warnings = append(warnings, "filesystem quota for overlay2 over ext4 can't take affect with privileged container")
++				} else {
++					for _, cap := range hostConfig.CapAdd {
++						if cap == "SYS_RESOURCE" {
++							warnings = append(warnings, "filesystem quota for overlay2 over ext4 can't take affect with CAP_SYS_RESOURCE")
++							break
++						}
++					}
++				}
++			}
++		}
++	}
++
+ 	return warnings, nil
+ }
+ 
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 6b3236f8f3..36ae182bcd 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -216,16 +216,16 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 
+ 	d.naiveDiff = graphdriver.NewNaiveDiffDriver(d, uidMaps, gidMaps)
+ 
+-	if backingFs == "xfs" {
+-		// Try to enable project quota support over xfs.
+-		if d.quotaCtl, err = quota.NewControl(home); err == nil {
++	if backingFs == "xfs" || backingFs == "extfs" {
++		// Try to enable project quota support over xfs and extfs.
++		if d.quotaCtl, err = quota.NewControl(home, backingFs); err == nil {
+ 			projectQuotaSupported = true
+ 		} else if opts.quota.Size > 0 {
+ 			return nil, fmt.Errorf("Storage option overlay2.size not supported. Filesystem does not support Project Quota: %v", err)
+ 		}
+ 	} else if opts.quota.Size > 0 {
+ 		// if xfs is not the backing fs then error out if the storage-opt overlay2.size is used.
+-		return nil, fmt.Errorf("Storage Option overlay2.size only supported for backingFS XFS. Found %v", backingFs)
++		return nil, fmt.Errorf("Storage Option overlay2.size only supported for backingFS XFS or ext4. Found %v", backingFs)
+ 	}
+ 
+ 	logger.Debugf("backingFs=%s,  projectQuotaSupported=%v", backingFs, projectQuotaSupported)
+@@ -341,7 +341,7 @@ func (d *Driver) Cleanup() error {
+ // file system.
+ func (d *Driver) CreateReadWrite(id, parent string, opts *graphdriver.CreateOpts) error {
+ 	if opts != nil && len(opts.StorageOpt) != 0 && !projectQuotaSupported {
+-		return fmt.Errorf("--storage-opt is supported only for overlay over xfs with 'pquota' mount option")
++		return fmt.Errorf("--storage-opt is supported only for overlay over xfs or ext4 with 'pquota' mount option")
+ 	}
+ 
+ 	if opts == nil {
+diff --git a/components/engine/daemon/graphdriver/quota/projectquota.go b/components/engine/daemon/graphdriver/quota/projectquota.go
+index 93e85823af..7d879eb81d 100644
+--- a/components/engine/daemon/graphdriver/quota/projectquota.go
++++ b/components/engine/daemon/graphdriver/quota/projectquota.go
+@@ -38,8 +38,8 @@ struct fsxattr {
+ #ifndef PRJQUOTA
+ #define PRJQUOTA	2
+ #endif
+-#ifndef XFS_PROJ_QUOTA
+-#define XFS_PROJ_QUOTA	2
++#ifndef PROJ_QUOTA
++#define PROJ_QUOTA   2
+ #endif
+ #ifndef Q_XSETPQLIM
+ #define Q_XSETPQLIM QCMD(Q_XSETQLIM, PRJQUOTA)
+@@ -49,6 +49,28 @@ struct fsxattr {
+ #endif
+ 
+ const int Q_XGETQSTAT_PRJQUOTA = QCMD(Q_XGETQSTAT, PRJQUOTA);
++
++#ifndef Q_XGETPQSTAT
++#define Q_XGETPQSTAT QCMD(Q_XGETQSTAT, PRJQUOTA)
++#endif
++
++#ifndef Q_SETPQUOTA
++#define Q_SETPQUOTA (unsigned int)QCMD(Q_SETQUOTA, PRJQUOTA)
++#endif
++
++#ifndef Q_GETPQUOTA
++#define Q_GETPQUOTA (unsigned int)QCMD(Q_GETQUOTA, PRJQUOTA)
++#endif
++
++#define PDQ_ACCT_BIT 4
++#define PDQ_ENFD_BIT 5
++
++#ifndef QUOTA_PDQ_ACCT
++#define QUOTA_PDQ_ACCT (1<<PDQ_ACCT_BIT)
++#endif
++#ifndef QUOTA_PDQ_ENFD
++#define QUOTA_PDQ_ENFD (1<<PDQ_ENFD_BIT)
++#endif
+ */
+ import "C"
+ import (
+@@ -56,6 +78,8 @@ import (
+ 	"io/ioutil"
+ 	"path"
+ 	"path/filepath"
++	"sync"
++	"syscall"
+ 	"unsafe"
+ 
+ 	rsystem "github.com/opencontainers/runc/libcontainer/system"
+@@ -74,6 +98,17 @@ type Control struct {
+ 	backingFsBlockDev string
+ 	nextProjectID     uint32
+ 	quotas            map[string]uint32
++	quotaOps          QuotafileOps
++	lock              sync.Mutex
++}
++
++// QuotafileOps is a interface for quotafile operations
++type QuotafileOps interface {
++	// SetProjectQuota sets the project quota for project id on block device
++	SetProjectQuota(dev string, projectID uint32, quota Quota) error
++
++	// GetProjectQuota gets the project quota for project id on block device
++	GetProjectQuota(dev string, projectID uint32, quota *Quota) error
+ }
+ 
+ // NewControl - initialize project quota support.
+@@ -98,7 +133,7 @@ type Control struct {
+ // on it. If that works, continue to scan existing containers to map allocated
+ // project ids.
+ //
+-func NewControl(basePath string) (*Control, error) {
++func NewControl(basePath string, fs string) (*Control, error) {
+ 	//
+ 	// If we are running in a user namespace quota won't be supported for
+ 	// now since makeBackingFsDev() will try to mknod().
+@@ -141,7 +176,28 @@ func NewControl(basePath string) (*Control, error) {
+ 	quota := Quota{
+ 		Size: 0,
+ 	}
+-	if err := setProjectQuota(backingFsBlockDev, minProjectID, quota); err != nil {
++	//
++	// Get the quota stat to check whether the system support project quota
++	//
++	stat, err := getQuotaStat(backingFsBlockDev)
++	if err != nil || stat != 2 {
++		if err != nil {
++			logrus.Warnf("Get quota stat failed with: %v", err)
++		}
++		return nil, fmt.Errorf("quota isn't supported on your system")
++	}
++
++	var quotaOps QuotafileOps
++
++	if fs == "xfs" {
++		quotaOps = new(XfsQuota)
++	} else if fs == "extfs" {
++		quotaOps = new(Ext4Quota)
++	} else {
++		return nil, fmt.Errorf("quota isn't supported for filesystem %q", fs)
++	}
++
++	if err := quotaOps.SetProjectQuota(backingFsBlockDev, minProjectID, quota); err != nil {
+ 		return nil, err
+ 	}
+ 
+@@ -149,6 +205,7 @@ func NewControl(basePath string) (*Control, error) {
+ 		backingFsBlockDev: backingFsBlockDev,
+ 		nextProjectID:     minProjectID + 1,
+ 		quotas:            make(map[string]uint32),
++		quotaOps:          quotaOps,
+ 	}
+ 
+ 	//
+@@ -167,6 +224,7 @@ func NewControl(basePath string) (*Control, error) {
+ // for that project id
+ func (q *Control) SetQuota(targetPath string, quota Quota) error {
+ 
++	q.lock.Lock()
+ 	projectID, ok := q.quotas[targetPath]
+ 	if !ok {
+ 		projectID = q.nextProjectID
+@@ -176,26 +234,32 @@ func (q *Control) SetQuota(targetPath string, quota Quota) error {
+ 		//
+ 		err := setProjectID(targetPath, projectID)
+ 		if err != nil {
++			q.lock.Lock()
+ 			return err
+ 		}
+ 
+ 		q.quotas[targetPath] = projectID
+ 		q.nextProjectID++
+ 	}
++	q.lock.Unlock()
+ 
+ 	//
+ 	// set the quota limit for the container's project id
+ 	//
+ 	logrus.Debugf("SetQuota(%s, %d): projectID=%d", targetPath, quota.Size, projectID)
+-	return setProjectQuota(q.backingFsBlockDev, projectID, quota)
++	return q.quotaOps.SetProjectQuota(q.backingFsBlockDev, projectID, quota)
+ }
+ 
+-// setProjectQuota - set the quota for project id on xfs block device
+-func setProjectQuota(backingFsBlockDev string, projectID uint32, quota Quota) error {
++// XfsQuota is a struct implements quota operations
++type XfsQuota struct {
++}
++
++// SetProjectQuota - set the quota for project id on xfs block device
++func (q *XfsQuota) SetProjectQuota(backingFsBlockDev string, projectID uint32, quota Quota) error {
+ 	var d C.fs_disk_quota_t
+ 	d.d_version = C.FS_DQUOT_VERSION
+ 	d.d_id = C.__u32(projectID)
+-	d.d_flags = C.XFS_PROJ_QUOTA
++	d.d_flags = C.PROJ_QUOTA
+ 
+ 	d.d_fieldmask = C.FS_DQ_BHARD | C.FS_DQ_BSOFT
+ 	d.d_blk_hardlimit = C.__u64(quota.Size / 512)
+@@ -215,20 +279,11 @@ func setProjectQuota(backingFsBlockDev string, projectID uint32, quota Quota) er
+ 	return nil
+ }
+ 
+-// GetQuota - get the quota limits of a directory that was configured with SetQuota
+-func (q *Control) GetQuota(targetPath string, quota *Quota) error {
+-
+-	projectID, ok := q.quotas[targetPath]
+-	if !ok {
+-		return fmt.Errorf("quota not found for path : %s", targetPath)
+-	}
+-
+-	//
+-	// get the quota limit for the container's project id
+-	//
++// GetProjectQuota gets the project quota for projectID on dev
++func (q *XfsQuota) GetProjectQuota(backingFsBlockDev string, projectID uint32, quota *Quota) error {
+ 	var d C.fs_disk_quota_t
+ 
+-	var cs = C.CString(q.backingFsBlockDev)
++	var cs = C.CString(backingFsBlockDev)
+ 	defer C.free(unsafe.Pointer(cs))
+ 
+ 	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, C.Q_XGETPQUOTA,
+@@ -236,13 +291,92 @@ func (q *Control) GetQuota(targetPath string, quota *Quota) error {
+ 		uintptr(unsafe.Pointer(&d)), 0, 0)
+ 	if errno != 0 {
+ 		return fmt.Errorf("Failed to get quota limit for projid %d on %s: %v",
+-			projectID, q.backingFsBlockDev, errno.Error())
++			projectID, backingFsBlockDev, errno.Error())
+ 	}
+ 	quota.Size = uint64(d.d_blk_hardlimit) * 512
+ 
+ 	return nil
+ }
+ 
++// Ext4Quota is a struct implements quota operations
++type Ext4Quota struct {
++}
++
++// SetProjectQuota - set the quota for project id on ext4 block device
++func (q *Ext4Quota) SetProjectQuota(backingFsBlockDev string, projectID uint32, quota Quota) error {
++	var d C.struct_if_dqblk
++	d.dqb_bhardlimit = C.__u64(quota.Size / 1024)
++	d.dqb_bsoftlimit = d.dqb_bhardlimit
++	d.dqb_valid = C.QIF_LIMITS
++
++	var cs = C.CString(backingFsBlockDev)
++	defer C.free(unsafe.Pointer(cs))
++
++	_, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, C.Q_SETPQUOTA,
++		uintptr(unsafe.Pointer(cs)), uintptr(C.__u32(projectID)),
++		uintptr(unsafe.Pointer(&d)), 0, 0)
++	if errno != 0 {
++		return fmt.Errorf("Failed to set quota limit for projid %d on %s: %v",
++			projectID, backingFsBlockDev, errno.Error())
++	}
++
++	return nil
++}
++
++func (q *Ext4Quota) GetProjectQuota(backingFsBlockDev string, projectID uint32, quota *Quota) error {
++	var d C.struct_if_dqblk
++	d.dqb_valid = C.QIF_USAGE
++
++	var cs = C.CString(backingFsBlockDev)
++	defer C.free(unsafe.Pointer(cs))
++
++	_, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, C.Q_SETPQUOTA,
++		uintptr(unsafe.Pointer(cs)), uintptr(C.__u32(projectID)),
++		uintptr(unsafe.Pointer(&d)), 0, 0)
++	if errno != 0 {
++		return fmt.Errorf("Failed to get quota limit for projid %d on %s: %v",
++			projectID, backingFsBlockDev, errno.Error())
++	}
++
++	quota.Size = uint64(d.dqb_bhardlimit) * 1024
++
++	return nil
++}
++
++// getQuotaStat - get the quota stat
++// return 2 means quota is on
++func getQuotaStat(backingFsBlockDev string) (int, error) {
++	var info C.fs_quota_stat_t
++
++	var cs = C.CString(backingFsBlockDev)
++	defer C.free(unsafe.Pointer(cs))
++	_, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, C.Q_XGETPQSTAT,
++		uintptr(unsafe.Pointer(cs)), 0,
++		uintptr(unsafe.Pointer(&info)), 0, 0)
++	if errno != 0 {
++		return -1, fmt.Errorf("Failed to get quota stat on %s: %v",
++			backingFsBlockDev, errno.Error())
++	}
++
++	return int((info.qs_flags&C.QUOTA_PDQ_ACCT)>>C.PDQ_ACCT_BIT + (info.qs_flags&C.QUOTA_PDQ_ENFD)>>C.PDQ_ENFD_BIT), nil
++}
++
++// GetQuota - get the quota limits of a directory that was configured with SetQuota
++func (q *Control) GetQuota(targetPath string, quota *Quota) error {
++	q.lock.Lock()
++	projectID, ok := q.quotas[targetPath]
++	q.lock.Unlock()
++	if !ok {
++		return fmt.Errorf("quota not found for path : %s", targetPath)
++	}
++
++	//
++	// get the quota limit for the container's project id
++	//
++
++	return q.quotaOps.GetProjectQuota(q.backingFsBlockDev, projectID, quota)
++}
++
+ // getProjectID - get the project id of path on xfs
+ func getProjectID(targetPath string) (uint32, error) {
+ 	dir, err := openDir(targetPath)
+diff --git a/components/engine/daemon/graphdriver/vfs/quota_linux.go b/components/engine/daemon/graphdriver/vfs/quota_linux.go
+index 0d5c3a7b98..bb2f571834 100644
+--- a/components/engine/daemon/graphdriver/vfs/quota_linux.go
++++ b/components/engine/daemon/graphdriver/vfs/quota_linux.go
+@@ -1,6 +1,7 @@
+ package vfs // import "github.com/docker/docker/daemon/graphdriver/vfs"
+ 
+ import (
++	"github.com/docker/docker/daemon/graphdriver"
+ 	"github.com/docker/docker/daemon/graphdriver/quota"
+ 	"github.com/sirupsen/logrus"
+ )
+@@ -10,7 +11,17 @@ type driverQuota struct {
+ }
+ 
+ func setupDriverQuota(driver *Driver) {
+-	if quotaCtl, err := quota.NewControl(driver.home); err == nil {
++	// Probe fs type before setting quota, now only supports xfs and extfs
++	fsMagic, err := graphdriver.GetFSMagic(driver.home)
++	if err != nil {
++		return
++	}
++	fsName, ok := graphdriver.FsNames[fsMagic]
++	if !ok {
++		return
++	}
++
++	if quotaCtl, err := quota.NewControl(driver.home, fsName); err == nil {
+ 		driver.quotaCtl = quotaCtl
+ 	} else if err != quota.ErrQuotaNotSupported {
+ 		logrus.Warnf("Unable to setup quota: %v\n", err)
+-- 
+2.17.1
+

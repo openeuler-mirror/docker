@@ -1,0 +1,71 @@
+From c6c599d5101ceac3c1ec38aa1b615f6009f4ca19 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Sat, 7 Sep 2019 00:54:32 +0800
+Subject: [PATCH] docker: add license
+
+reason: add license
+
+Change-Id: I82f16e0664010fe4789c5e7ff0daa3460042a341
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/cli/opts/hugetlb.go               | 4 +++-
+ components/engine/pkg/sysinfo/utils_linux.go | 4 +++-
+ components/engine/pkg/trylock/mutex.go       | 4 +++-
+ components/engine/utils/utils.go             | 4 +++-
+ 4 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/components/cli/opts/hugetlb.go b/components/cli/opts/hugetlb.go
+index c90a00b..68b771a 100644
+--- a/components/cli/opts/hugetlb.go
++++ b/components/cli/opts/hugetlb.go
+@@ -1,5 +1,7 @@
+ /*
+-Copyright (c) Huawei Technologies Co., Ltd. 2017-2019. All rights reserved.
++Copyright (c) Huawei Technologies Co., Ltd. 2019. All rights reserved.
++Use of this source code is governed by Apache-2.0
++license that can be found in the LICENSE file.
+ Description: hugetlb related common functions
+ Author: zhaolongquan
+ Create: 2019-06-12
+diff --git a/components/engine/pkg/sysinfo/utils_linux.go b/components/engine/pkg/sysinfo/utils_linux.go
+index e380f7a..fc8f023 100644
+--- a/components/engine/pkg/sysinfo/utils_linux.go
++++ b/components/engine/pkg/sysinfo/utils_linux.go
+@@ -1,5 +1,7 @@
+ /*
+-Copyright (c) Huawei Technologies Co., Ltd. 2017-2019. All rights reserved.
++Copyright (c) Huawei Technologies Co., Ltd. 2019. All rights reserved.
++Use of this source code is governed by Apache-2.0
++license that can be found in the LICENSE file.
+ Description: hugetlb related common functions
+ Author: zhaolongquan
+ Create: 2019-06-12
+diff --git a/components/engine/pkg/trylock/mutex.go b/components/engine/pkg/trylock/mutex.go
+index 63fba74..5069df8 100644
+--- a/components/engine/pkg/trylock/mutex.go
++++ b/components/engine/pkg/trylock/mutex.go
+@@ -1,5 +1,7 @@
+ /*
+-Copyright (c) Huawei Technologies Co., Ltd. 2017-2019. All rights reserved.
++Copyright (c) Huawei Technologies Co., Ltd. 2019. All rights reserved.
++Use of this source code is governed by Apache-2.0
++license that can be found in the LICENSE file.
+ Description: mutex related common functions
+ Author: lujingxiao
+ Create: 2019-01-19
+diff --git a/components/engine/utils/utils.go b/components/engine/utils/utils.go
+index 5363a76..53893fc 100644
+--- a/components/engine/utils/utils.go
++++ b/components/engine/utils/utils.go
+@@ -1,5 +1,7 @@
+ /*
+-Copyright (c) Huawei Technologies Co., Ltd. 2017-2019. All rights reserved.
++Copyright (c) Huawei Technologies Co., Ltd. 2019. All rights reserved.
++Use of this source code is governed by Apache-2.0
++license that can be found in the LICENSE file.
+ Description: common functions
+ Author: lujingxiao
+ Create: 2019-01-19
+-- 
+1.8.3.1
+

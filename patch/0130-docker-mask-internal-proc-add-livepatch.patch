@@ -1,0 +1,28 @@
+From 6eda894b741eb1a0fe10c5834c0bbb81222d3131 Mon Sep 17 00:00:00 2001
+From: wujibin <wujibin@huawei.com>
+Date: Fri, 14 Jun 2019 12:51:01 +0800
+Subject: [PATCH] docker:  mask internal proc add livepatch 
+
+reason: mask /proc/livepatch
+
+Change-Id: I229ee5aaccbd067aecb7decce9a7f701531b037a
+Signed-off-by: wujibin <wujibin@huawei.com>
+---
+ .../cli/vendor/github.com/containerd/containerd/oci/spec.go      | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/cli/vendor/github.com/containerd/containerd/oci/spec.go b/components/cli/vendor/github.com/containerd/containerd/oci/spec.go
+index bc5cc45c16..e96c77aad7 100644
+--- a/components/cli/vendor/github.com/containerd/containerd/oci/spec.go
++++ b/components/cli/vendor/github.com/containerd/containerd/oci/spec.go
+@@ -228,6 +228,7 @@ func populateDefaultUnixSpec(ctx context.Context, s *Spec, id string) error {
+ 				"/proc/cpuirqstat",
+ 				"/proc/memstat",
+ 				"/proc/iomem_ext",
++				"/proc/livepatch",
+ 			},
+ 			ReadonlyPaths: []string{
+ 				"/proc/asound",
+-- 
+2.19.0
+

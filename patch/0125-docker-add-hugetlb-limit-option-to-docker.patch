@@ -1,0 +1,642 @@
+From 74bad908a52fd2713c72c9f42f2b053369ec53d2 Mon Sep 17 00:00:00 2001
+From: zhaolongquan1 <zhaolongquan1@huawei.com>
+Date: Wed, 12 Jun 2019 12:37:08 -0400
+Subject: [PATCH] docker:  add hugetlb limit option to docker
+
+reason:add hugetlb limit option to docker
+
+Change-Id: I418c65fd050d3740da6997589df45b08355fed80
+Signed-off-by: zhaolongquan1 <zhaolongquan1@huawei.com>
+---
+ components/cli/cli/command/container/opts.go       |   5 +
+ components/cli/cli/command/system/info.go          |   1 +
+ components/cli/contrib/completion/bash/docker      |   1 +
+ components/cli/opts/hugetlb.go                     | 109 +++++++++++++
+ .../docker/api/types/container/host_config.go      |   8 +
+ .../github.com/docker/docker/api/types/types.go    |   1 +
+ .../engine/api/types/container/host_config.go      |   8 +
+ components/engine/api/types/types.go               |   1 +
+ components/engine/daemon/daemon_unix.go            |  66 ++++++++
+ components/engine/daemon/info.go                   |   1 +
+ components/engine/daemon/oci_linux.go              |   2 +
+ components/engine/pkg/sysinfo/sysinfo.go           |   6 +
+ components/engine/pkg/sysinfo/sysinfo_linux.go     |  30 ++++
+ components/engine/pkg/sysinfo/utils_linux.go       | 169 +++++++++++++++++++++
+ 14 files changed, 408 insertions(+)
+ create mode 100644 components/cli/opts/hugetlb.go
+ create mode 100644 components/engine/pkg/sysinfo/utils_linux.go
+
+diff --git a/components/cli/cli/command/container/opts.go b/components/cli/cli/command/container/opts.go
+index 00da8fc..d729a3c 100644
+--- a/components/cli/cli/command/container/opts.go
++++ b/components/cli/cli/command/container/opts.go
+@@ -66,6 +66,7 @@ type containerOptions struct {
+ 	storageOpt         opts.ListOpts
+ 	labelsFile         opts.ListOpts
+ 	loggingOpts        opts.ListOpts
++	hugetlb		   opts.HugetlbOpt
+ 	privileged         bool
+ 	pidMode            string
+ 	utsMode            string
+@@ -166,6 +167,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 		ulimits:           opts.NewUlimitOpt(nil),
+ 		volumes:           opts.NewListOpts(nil),
+ 		volumesFrom:       opts.NewListOpts(nil),
++		hugetlb:           opts.NewHugetlbOpt(opts.ValidateHugetlb),
+ 	}
+ 
+ 	// General purpose flags
+@@ -295,6 +297,8 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 
+ 	flags.BoolVar(&copts.init, "init", false, "Run an init inside the container that forwards signals and reaps processes")
+ 	flags.SetAnnotation("init", "version", []string{"1.25"})
++
++	flags.Var(&copts.hugetlb, "hugetlb-limit", "Huge page limit (format: [size:]<limit>, e.g. --hugetlb-limit 2MB:32MB)")
+ 	return copts
+ }
+ 
+@@ -538,6 +542,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
+ 
+ 	resources := container.Resources{
+ 		CgroupParent:         copts.cgroupParent,
++		Hugetlbs:             copts.hugetlb.GetAll(),
+ 		Memory:               copts.memory.Value(),
+ 		MemoryReservation:    copts.memoryReservation.Value(),
+ 		MemorySwap:           copts.memorySwap.Value(),
+diff --git a/components/cli/cli/command/system/info.go b/components/cli/cli/command/system/info.go
+index 17ccc14..7399d10 100644
+--- a/components/cli/cli/command/system/info.go
++++ b/components/cli/cli/command/system/info.go
+@@ -74,6 +74,7 @@ func prettyPrintInfo(dockerCli command.Cli, info types.Info) error {
+ 	}
+ 	fprintlnNonEmpty(dockerCli.Out(), "Logging Driver:", info.LoggingDriver)
+ 	fprintlnNonEmpty(dockerCli.Out(), "Cgroup Driver:", info.CgroupDriver)
++	fprintlnNonEmpty(dockerCli.Out(), "Hugetlb Pagesize:", info.HugetlbPageSize)
+ 
+ 	fmt.Fprintln(dockerCli.Out(), "Plugins:")
+ 	fmt.Fprintln(dockerCli.Out(), " Volume:", strings.Join(info.Plugins.Volume, " "))
+diff --git a/components/cli/contrib/completion/bash/docker b/components/cli/contrib/completion/bash/docker
+index 64f7fe0..330804d 100644
+--- a/components/cli/contrib/completion/bash/docker
++++ b/components/cli/contrib/completion/bash/docker
+@@ -1792,6 +1792,7 @@ _docker_container_run_and_create() {
+ 		--files-limit
+ 		--group-add
+ 		--hook-spec
++		--hugetlb-limit
+ 		--health-cmd
+ 		--health-interval
+ 		--health-retries
+diff --git a/components/cli/opts/hugetlb.go b/components/cli/opts/hugetlb.go
+new file mode 100644
+index 0000000..48cfeff
+--- /dev/null
++++ b/components/cli/opts/hugetlb.go
+@@ -0,0 +1,109 @@
++package opts
++
++import (
++	"fmt"
++	"strings"
++
++	"github.com/docker/docker/api/types/container"
++	"github.com/docker/go-units"
++)
++
++// ValidatorHugetlbType defines a validator function that returns a validated struct and/or an error.
++type ValidatorHugetlbType func(val string) (container.Hugetlb, error)
++
++// ValidateHugetlb validates that the specified string has a valid hugetlb format.
++func ValidateHugetlb(htlb string) (container.Hugetlb, error) {
++	var size, limit string
++	var hugetlb container.Hugetlb
++
++	ss := strings.Split(htlb, ":")
++	if len(ss) == 1 {
++		size = ""
++		limit = ss[0]
++	} else if len(ss) == 2 {
++		if ss[0] == "" {
++			size = ""
++		} else {
++			size = formatHugepageSize(ss[0])
++		}
++		limit = ss[1]
++	} else {
++		return hugetlb, fmt.Errorf("Invalid arguments for hugetlb-limit, too many colons")
++	}
++
++	ilimit, err := units.RAMInBytes(limit)
++	if err != nil {
++		return hugetlb, fmt.Errorf("Invalid hugetlb limit:%s", limit)
++	}
++	ulimit := uint64(ilimit)
++	hugetlb = container.Hugetlb{
++		PageSize: size,
++		Limit:    ulimit,
++	}
++	return hugetlb, nil
++}
++
++// HugetlbOpt defines a map of Hugetlbs
++type HugetlbOpt struct {
++	values    []container.Hugetlb
++	validator ValidatorHugetlbType
++}
++
++// NewHugetlbOpt creates a new HugetlbOpt
++func NewHugetlbOpt(validator ValidatorHugetlbType) HugetlbOpt {
++	values := []container.Hugetlb{}
++	return HugetlbOpt{
++		values:    values,
++		validator: validator,
++	}
++}
++
++// Set validates a Hugetlb and sets its name as a key in HugetlbOpt
++func (opt *HugetlbOpt) Set(val string) error {
++	var value container.Hugetlb
++	if opt.validator != nil {
++		v, err := opt.validator(val)
++		if err != nil {
++			return err
++		}
++		value = v
++	}
++	(opt.values) = append((opt.values), value)
++	return nil
++}
++
++// String returns HugetlbOpt values as a string.
++func (opt *HugetlbOpt) String() string {
++	var out []string
++	for _, v := range opt.values {
++		out = append(out, fmt.Sprintf("%v", v))
++	}
++
++	return fmt.Sprintf("%v", out)
++}
++
++// GetList returns a slice of pointers to Hugetlbs.
++func (opt *HugetlbOpt) GetAll() []container.Hugetlb {
++	var hugetlbs []container.Hugetlb
++	for _, v := range opt.values {
++		hugetlbs = append(hugetlbs, v)
++	}
++
++	return hugetlbs
++}
++
++// Type returns the option type
++func (opt *HugetlbOpt) Type() string {
++	return "hugetlb"
++}
++
++func formatHugepageSize(s string) string {
++	// make sure size get all 'b/k/m/g' replaced with "B/K/M/G"
++	s = strings.ToUpper(s)
++	// make sure size hase suffix "B"
++	if !strings.HasSuffix(s, "B") {
++		s = s + "B"
++	}
++
++	return s
++}
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go b/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
+index 701cae5..6989b2b 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
+@@ -342,6 +342,14 @@ type Resources struct {
+ 	CPUPercent         int64  `json:"CpuPercent"` // CPU percent
+ 	IOMaximumIOps      uint64 // Maximum IOps for the container system drive
+ 	IOMaximumBandwidth uint64 // Maximum IO in bytes per second for the container system drive
++
++	// Hugetlb setting
++	Hugetlbs []Hugetlb
++}
++
++type Hugetlb struct {
++	PageSize string
++	Limit    uint64
+ }
+ 
+ // UpdateConfig holds the mutable attributes of a Container.
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/types.go b/components/cli/vendor/github.com/docker/docker/api/types/types.go
+index 56f556c..cfcfd4a 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/types.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/types.go
+@@ -173,6 +173,7 @@ type Info struct {
+ 	SystemTime         string
+ 	LoggingDriver      string
+ 	CgroupDriver       string
++	HugetlbPageSize    string
+ 	NEventsListener    int
+ 	KernelVersion      string
+ 	OperatingSystem    string
+diff --git a/components/engine/api/types/container/host_config.go b/components/engine/api/types/container/host_config.go
+index 701cae5..6989b2b 100644
+--- a/components/engine/api/types/container/host_config.go
++++ b/components/engine/api/types/container/host_config.go
+@@ -342,6 +342,14 @@ type Resources struct {
+ 	CPUPercent         int64  `json:"CpuPercent"` // CPU percent
+ 	IOMaximumIOps      uint64 // Maximum IOps for the container system drive
+ 	IOMaximumBandwidth uint64 // Maximum IO in bytes per second for the container system drive
++
++	// Hugetlb setting
++	Hugetlbs []Hugetlb
++}
++
++type Hugetlb struct {
++	PageSize string
++	Limit    uint64
+ }
+ 
+ // UpdateConfig holds the mutable attributes of a Container.
+diff --git a/components/engine/api/types/types.go b/components/engine/api/types/types.go
+index 78e97da..55955f2 100644
+--- a/components/engine/api/types/types.go
++++ b/components/engine/api/types/types.go
+@@ -174,6 +174,7 @@ type Info struct {
+ 	SystemTime         string
+ 	LoggingDriver      string
+ 	CgroupDriver       string
++	HugetlbPageSize    string
+ 	NEventsListener    int
+ 	KernelVersion      string
+ 	OperatingSystem    string
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 9abc9a3..5a59b32 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -187,6 +187,21 @@ func getBlkioWeightDevices(config containertypes.Resources) ([]specs.LinuxWeight
+ 	return blkioWeightDevices, nil
+ }
+ 
++func getHugetlbResources(config containertypes.Resources) []specs.LinuxHugepageLimit {
++	var hpLimits []specs.LinuxHugepageLimit
++
++	for _, hpl := range config.Hugetlbs {
++		size := hpl.PageSize
++		limit := uint64(hpl.Limit)
++		hpLimits = append(hpLimits, specs.LinuxHugepageLimit{
++			Pagesize: size,
++			Limit:    limit,
++		})
++	}
++
++	return hpLimits
++}
++
+ func (daemon *Daemon) parseSecurityOpt(container *container.Container, hostConfig *containertypes.HostConfig) error {
+ 	container.NoNewPrivileges = daemon.configStore.NoNewPrivileges
+ 	return parseSecurityOpt(container, hostConfig)
+@@ -553,9 +568,51 @@ func (daemon *Daemon) verifyContainerResources(hostConfig *containertypes.HostCo
+ 		resources.BlkioDeviceWriteIOps = []*pblkiodev.ThrottleDevice{}
+ 	}
+ 
++	// hugetlb size checks
++	if len(resources.Hugetlbs) > 0 && !sysInfo.HugetlbLimit {
++		warnings = append(warnings, "Your kernel does not support hugetlb limit.")
++		logrus.Warnf("Your kernel does not support hugetlb limit. --hugetlb-limit discarded.")
++		resources.Hugetlbs = []containertypes.Hugetlb{}
++	}
++	newHugetlbs, warning, err := validateHugetlbs(resources.Hugetlbs)
++	warnings = append(warnings, warning...)
++	if err != nil {
++		return warnings, err
++	}
++	resources.Hugetlbs = newHugetlbs
++
+ 	return warnings, nil
+ }
+ 
++func validateHugetlbs(hgtlbs []containertypes.Hugetlb) ([]containertypes.Hugetlb, []string, error) {
++	warnings := []string{}
++	htbMap := make(map[string]uint64)
++
++	for _, hpl := range hgtlbs {
++		size, warning, err := sysinfo.ValidateHugetlb(hpl.PageSize, hpl.Limit)
++		warnings = append(warnings, warning...)
++		if err != nil {
++			return nil, warnings, err
++		}
++
++		if l, ok := htbMap[size]; ok {
++			warnings = append(warnings, fmt.Sprintf("hugetlb-limit setting of %s is repeated, former setting %d will be replaced with %d", size, l, hpl.Limit))
++		}
++		htbMap[size] = hpl.Limit
++	}
++
++	newHgtlbs := []containertypes.Hugetlb{}
++	for k, v := range htbMap {
++		hugetlb := containertypes.Hugetlb{
++			PageSize: k,
++			Limit:    v,
++		}
++		newHgtlbs = append(newHgtlbs, hugetlb)
++	}
++
++	return newHgtlbs, warnings, nil
++}
++
+ func (daemon *Daemon) getCgroupDriver() string {
+ 	cgroupDriver := cgroupFsDriver
+ 
+@@ -565,6 +622,15 @@ func (daemon *Daemon) getCgroupDriver() string {
+ 	return cgroupDriver
+ }
+ 
++func (daemon *Daemon) getHugetlbPageSize() string {
++	size, err := sysinfo.GetHugepageSize()
++	if err != nil {
++		logrus.Errorf("Failed to get default hugetlb pagesize: %v", err)
++		return ""
++	}
++	return size
++}
++
+ // getCD gets the raw value of the native.cgroupdriver option, if set.
+ func getCD(config *config.Config) string {
+ 	for _, option := range config.ExecOptions {
+diff --git a/components/engine/daemon/info.go b/components/engine/daemon/info.go
+index 4acad11..2ecff72 100644
+--- a/components/engine/daemon/info.go
++++ b/components/engine/daemon/info.go
+@@ -47,6 +47,7 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
+ 		SystemTime:         time.Now().Format(time.RFC3339Nano),
+ 		LoggingDriver:      daemon.defaultLogConfig.Type,
+ 		CgroupDriver:       daemon.getCgroupDriver(),
++		HugetlbPageSize:	daemon.getHugetlbPageSize(),
+ 		NEventsListener:    daemon.EventsService.SubscribersCount(),
+ 		KernelVersion:      kernelVersion(),
+ 		OperatingSystem:    operatingSystem(),
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index f5270bd..6d3bc16 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -49,6 +49,7 @@ func setResources(s *specs.Spec, r containertypes.Resources) error {
+ 		return err
+ 	}
+ 
++	hpRes := getHugetlbResources(r)
+ 	memoryRes := getMemoryResources(r)
+ 	cpuRes, err := getCPUResources(r)
+ 	if err != nil {
+@@ -73,6 +74,7 @@ func setResources(s *specs.Spec, r containertypes.Resources) error {
+ 		Files: &specs.Files{
+ 			Limit: &r.FilesLimit,
+ 		},
++		HugepageLimits: hpRes,
+ 	}
+ 
+ 	if s.Linux.Resources != nil && len(s.Linux.Resources.Devices) > 0 {
+diff --git a/components/engine/pkg/sysinfo/sysinfo.go b/components/engine/pkg/sysinfo/sysinfo.go
+index 7ea1be5..139ad61 100644
+--- a/components/engine/pkg/sysinfo/sysinfo.go
++++ b/components/engine/pkg/sysinfo/sysinfo.go
+@@ -17,6 +17,7 @@ type SysInfo struct {
+ 	Seccomp bool
+ 
+ 	cgroupMemInfo
++	cgroupHugetlbInfo
+ 	cgroupCPUInfo
+ 	cgroupBlkioInfo
+ 	cgroupCpusetInfo
+@@ -56,6 +57,11 @@ type cgroupMemInfo struct {
+ 	KernelMemory bool
+ }
+ 
++type cgroupHugetlbInfo struct {
++	// Whether hugetlb limit is supported or not
++	HugetlbLimit bool
++}
++
+ type cgroupCPUInfo struct {
+ 	// Whether CPU shares is supported or not
+ 	CPUShares bool
+diff --git a/components/engine/pkg/sysinfo/sysinfo_linux.go b/components/engine/pkg/sysinfo/sysinfo_linux.go
+index c0bf280..b4473ee 100644
+--- a/components/engine/pkg/sysinfo/sysinfo_linux.go
++++ b/components/engine/pkg/sysinfo/sysinfo_linux.go
+@@ -36,6 +36,7 @@ func New(quiet bool) *SysInfo {
+ 		logrus.Warnf("Failed to parse cgroup information: %v", err)
+ 	} else {
+ 		sysInfo.cgroupMemInfo = checkCgroupMem(cgMounts, quiet)
++		sysInfo.cgroupHugetlbInfo = checkCgroupHugetlb(cgMounts, quiet)
+ 		sysInfo.cgroupCPUInfo = checkCgroupCPU(cgMounts, quiet)
+ 		sysInfo.cgroupBlkioInfo = checkCgroupBlkioInfo(cgMounts, quiet)
+ 		sysInfo.cgroupCpusetInfo = checkCgroupCpusetInfo(cgMounts, quiet)
+@@ -66,6 +67,35 @@ func New(quiet bool) *SysInfo {
+ 	return sysInfo
+ }
+ 
++// checkCgroupHugetlb reads the hugetlb information from the hugetlb cgroup mount point.
++func checkCgroupHugetlb(cgMounts map[string]string, quiet bool) cgroupHugetlbInfo {
++	var (
++		dSize string
++		err   error
++		c     cgroupHugetlbInfo
++	)
++	mountPoint, ok := cgMounts["hugetlb"]
++	if !ok {
++		if !quiet {
++			logrus.Warnf("Your kernel does not support cgroup hugetlb limit")
++		}
++		return c
++	}
++	dSize, err = GetDefaultHugepageSize()
++	if err != nil {
++		logrus.Warnf("Your kernel does not support cgroup hugetlb limit")
++		return c
++	}
++
++	hugetlbLimit := cgroupEnabled(mountPoint, fmt.Sprintf("hugetlb.%s.limit_in_bytes", dSize))
++	if !quiet && !hugetlbLimit {
++		logrus.Warn("Your kernel does not support hugetlb limit.")
++	}
++
++	c.HugetlbLimit = hugetlbLimit
++	return c
++}
++
+ // checkCgroupMem reads the memory information from the memory cgroup mount point.
+ func checkCgroupMem(cgMounts map[string]string, quiet bool) cgroupMemInfo {
+ 	mountPoint, ok := cgMounts["memory"]
+diff --git a/components/engine/pkg/sysinfo/utils_linux.go b/components/engine/pkg/sysinfo/utils_linux.go
+new file mode 100644
+index 0000000..905d0b7
+--- /dev/null
++++ b/components/engine/pkg/sysinfo/utils_linux.go
+@@ -0,0 +1,169 @@
++// +build linux
++
++package sysinfo
++
++import (
++	"bufio"
++	"fmt"
++	"os"
++	"strings"
++
++	"github.com/docker/go-units"
++	"github.com/opencontainers/runc/libcontainer/cgroups"
++)
++
++// GetHugepageSize returns system supported hugepage sizes
++func GetHugepageSize() (string, error) {
++	hps, err := getHugepageSizes()
++	if err != nil {
++		return "", err
++	}
++
++	dhp, err := GetDefaultHugepageSize()
++	if err != nil {
++		return "", err
++	}
++
++	hpsString := strings.Join(hps, ", ")
++	if len(hps) > 1 {
++		hpsString += fmt.Sprintf(" (default is %s)", dhp)
++	}
++	return hpsString, nil
++}
++
++// ValidateHugetlb check whether hugetlb pagesize and limit legal
++func ValidateHugetlb(pageSize string, limit uint64) (string, []string, error) {
++	var err error
++	warnings := []string{}
++	if pageSize != "" {
++		sizeInt, _ := units.RAMInBytes(pageSize)
++		pageSize = humanSize(sizeInt)
++		if err := isHugepageSizeValid(pageSize); err != nil {
++			return "", warnings, err
++		}
++	} else {
++		pageSize, err = GetDefaultHugepageSize()
++		if err != nil {
++			return "", warnings, fmt.Errorf("Failed to get system hugepage size")
++		}
++	}
++
++	warn, err := isHugeLimitValid(pageSize, limit)
++	warnings = append(warnings, warn...)
++	if err != nil {
++		return "", warnings, err
++	}
++
++	return pageSize, warnings, nil
++}
++
++// isHugeLimitValid check whether input hugetlb limit legal
++// it will check whether the limit size is times of size
++func isHugeLimitValid(size string, limit uint64) ([]string, error) {
++	warnings := []string{}
++	sizeInt, err := units.RAMInBytes(size)
++	if err != nil || sizeInt < 0 {
++		return warnings, fmt.Errorf("Invalid hugepage size:%s -- %s", size, err)
++	}
++	sizeUint := uint64(sizeInt)
++
++	if limit%sizeUint != 0 {
++		warnings = append(warnings, "HugeTlb limit should be times of hugepage size. "+
++			"cgroup will down round to the nearest multiple")
++	}
++
++	return warnings, nil
++}
++
++// isHugepageSizeValid check whether input size legal
++// it will compare size with all system supported hugepage size
++func isHugepageSizeValid(size string) error {
++	hps, err := getHugepageSizes()
++	if err != nil {
++		return err
++	}
++
++	for _, hp := range hps {
++		if size == hp {
++			return nil
++		}
++	}
++	return fmt.Errorf("Invalid hugepage size:%s, shoud be one of %v", size, hps)
++}
++
++func humanSize(i int64) string {
++	// hugetlb may not surpass GB
++	uf := []string{"B", "KB", "MB", "GB"}
++	ui := 0
++	for {
++		if i < 1024 || ui >= 3 {
++			break
++		}
++		i = int64(i / 1024)
++		ui = ui + 1
++	}
++
++	return fmt.Sprintf("%d%s", i, uf[ui])
++}
++
++func getHugepageSizes() ([]string, error) {
++	var hps []string
++
++	hgtlbMp, err := cgroups.FindCgroupMountpoint("hugetlb")
++	if err != nil {
++		return nil, fmt.Errorf("Hugetlb cgroup not supported")
++	}
++
++	f, err := os.Open(hgtlbMp)
++	if err != nil {
++		return nil, fmt.Errorf("Failed to open hugetlb cgroup directory")
++	}
++	defer f.Close()
++	// -1 here means to read all the fileInfo from the directory, could be any negative number
++	fi, err := f.Readdir(-1)
++	if err != nil {
++		return nil, fmt.Errorf("Failed to read hugetlb cgroup directory")
++	}
++
++	for _, finfo := range fi {
++		if strings.Contains(finfo.Name(), "limit_in_bytes") {
++			sres := strings.SplitN(finfo.Name(), ".", 3)
++			if len(sres) != 3 {
++				continue
++			}
++			hps = append(hps, sres[1])
++		}
++	}
++
++	if len(hps) == 0 {
++		return nil, fmt.Errorf("Hugetlb pagesize not found in cgroup")
++	}
++
++	return hps, nil
++}
++
++// GetDefaultHugepageSize returns system default hugepage size
++func GetDefaultHugepageSize() (string, error) {
++	f, err := os.Open("/proc/meminfo")
++	if err != nil {
++		return "", fmt.Errorf("Failed to get hugepage size, cannot open /proc/meminfo")
++	}
++	defer f.Close()
++
++	s := bufio.NewScanner(f)
++	for s.Scan() {
++		if strings.Contains(s.Text(), "Hugepagesize") {
++			sres := strings.SplitN(s.Text(), ":", 2)
++			if len(sres) != 2 {
++				return "", fmt.Errorf("Failed to get hugepage size, weird /proc/meminfo format")
++			}
++
++			// return strings.TrimSpace(sres[1]), nil
++			size := strings.Replace(sres[1], " ", "", -1)
++			// transform 2048k to 2M
++			sizeInt, _ := units.RAMInBytes(size)
++			return humanSize(sizeInt), nil
++		}
++	}
++	return "", fmt.Errorf("Failed to get hugepage size")
++}
+-- 
+1.8.3.1
+

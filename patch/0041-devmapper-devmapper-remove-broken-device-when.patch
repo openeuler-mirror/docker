@@ -1,0 +1,69 @@
+From 544b5be235f9a34a5c75a936549bf6d6f2280339 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 15:22:26 +0800
+Subject: [PATCH 041/111] devmapper:  devmapper: remove broken device
+ when start daemon
+
+reason: cherry-pick commits to docker-18.09
+
+cherry-pick from
+6104c8e237 | * devmapper: remove broken device when start daemon
+
+When use `kill -9 docker-daemon-pid` to stop docker, It may casue that
+the status of devicemapper devices inconsisitent. eg, we can see the
+device info use `dmsetup status` command, but the device does not exist
+in `/dev/mapper` directory.
+
+At next time docker start, it will start failed or load container
+failed.
+
+This patch add a check when docker start in `initDevmapper` function.
+First, we find all devmapper devices in the system. Then If the device
+name has a prefix with `docker-{major}:{minor}-{inode}` and the length
+is equal to zero, we use `devicemapper.RemoveDevice` remove the device.
+
+
+Change-Id: I7eccf4e9539751d615b953abf94951b7e94153d1
+Signed-off-by: Wang Long <long.wanglong@huawei.com>
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../daemon/graphdriver/devmapper/deviceset.go | 23 +++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index be48d92e8d..b3e142e2ba 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -1732,6 +1732,29 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
+ 	devices.devicePrefix = fmt.Sprintf("docker-%d:%d-%d", major(st.Dev), minor(st.Dev), st.Ino)
+ 	logger.Debugf("Generated prefix: %s", devices.devicePrefix)
+ 
++	deviceNames, err := devicemapper.GetDeviceList()
++	if err != nil {
++		logrus.Debugf("devmapper: Failed to get device list: %s", err)
++	}
++
++	for _, name := range deviceNames {
++		if !strings.HasPrefix(name, devices.devicePrefix) {
++			continue
++		}
++		_, length, _, _, err := devicemapper.GetStatus(name)
++		if err != nil {
++			logrus.Warnf("devmapper: get device status(%s): %s", name, err)
++			continue
++		}
++		// remove broken device
++		if length == 0 {
++			if err := devicemapper.RemoveDevice(name); err != nil {
++				logrus.Warnf("devmapper: remove broken device(%s): %s", name, err)
++			}
++			logrus.Debugf("devmapper: remove broken device: %s", name)
++		}
++	}
++
+ 	// Check for the existence of the thin-pool device
+ 	poolExists, err := devices.thinPoolExists(devices.getPoolName())
+ 	if err != nil {
+-- 
+2.17.1
+

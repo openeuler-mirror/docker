@@ -1,0 +1,59 @@
+From 8483caa076b11f33e9a4c578b8aefce127468e66 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Fri, 11 Jan 2019 12:18:27 +0800
+Subject: [PATCH 047/111] docker:  fix panic slice bounds out of range
+
+reason: fix panic
+
+panic: runtime error: slice bounds out of range
+
+goroutine 1 [running]:
+github.com/docker/docker/daemon.parseInitVersion(0xc4209da600, 0x22, 0x22, 0x600, 0xc4209da600, 0x22, 0x28, 0x0)
+        /go/src/github.com/docker/docker/daemon/info_unix.go:163 +0x3ce
+github.com/docker/docker/daemon.(*Daemon).fillPlatformInfo(0xc4206e21e0, 0xc42009cc00, 0xc42081d220)
+        /go/src/github.com/docker/docker/daemon/info_unix.go:68 +0x115f
+github.com/docker/docker/daemon.(*Daemon).SystemInfo(0xc4206e21e0, 0x0, 0x0, 0xc42020d3c0)
+        /go/src/github.com/docker/docker/daemon/info.go:75 +0x7e8
+github.com/docker/docker/daemon.NewDaemon(0x55b515ace080, 0xc4201ab400, 0xc4207c5400, 0xc4207602d0, 0x0, 0x0, 0x0)
+        /go/src/github.com/docker/docker/daemon/daemon.go:1080 +0x2c87
+main.(*DaemonCli).start(0xc420727260, 0xc42016f6e0, 0x0, 0x0)
+        /go/src/github.com/docker/docker/cmd/dockerd/daemon.go:180 +0x74f
+main.runDaemon(0xc42016f6e0, 0xc420194600, 0x0)
+        /go/src/github.com/docker/docker/cmd/dockerd/docker_unix.go:7 +0x47
+main.newDaemonCommand.func1(0xc42076d680, 0xc420190d80, 0x0, 0x8, 0x0, 0x0)
+        /go/src/github.com/docker/docker/cmd/dockerd/docker.go:29 +0x5d
+github.com/docker/docker/vendor/github.com/spf13/cobra.(*Command).execute(0xc42076d680, 0xc42003a0a0, 0x8, 0x8, 0xc42076d680, 0xc42003a0a0)
+        /go/src/github.com/docker/docker/vendor/github.com/spf13/cobra/command.go:762 +0x46a
+github.com/docker/docker/vendor/github.com/spf13/cobra.(*Command).ExecuteC(0xc42076d680, 0x55b515aa3350, 0x55b51565f0c0, 0x55b515aa3360)
+        /go/src/github.com/docker/docker/vendor/github.com/spf13/cobra/command.go:852 +0x30c
+github.com/docker/docker/vendor/github.com/spf13/cobra.(*Command).Execute(0xc42076d680, 0xc42000e020, 0x55b5138f336f)
+        /go/src/github.com/docker/docker/vendor/github.com/spf13/cobra/command.go:800 +0x2d
+main.main()
+        /go/src/github.com/docker/docker/cmd/dockerd/docker.go:70 +0xa2
+
+Change-Id: Iafadb0c9215e1840c084637ebc96f5ef4d004cbd
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/info_unix.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/info_unix.go b/components/engine/daemon/info_unix.go
+index 55b6c6e79b..c53804edec 100644
+--- a/components/engine/daemon/info_unix.go
++++ b/components/engine/daemon/info_unix.go
+@@ -160,7 +160,11 @@ func parseInitVersion(v string) (types.Commit, error) {
+ 		gitParts := strings.Split(parts[1], ".")
+ 		if len(gitParts) == 2 && gitParts[0] == "git" {
+ 			version.ID = gitParts[1]
+-			version.Expected = dockerversion.InitCommitID[0:len(version.ID)]
++			n := len(dockerversion.InitCommitID)
++			if n > len(version.ID) {
++				n = len(version.ID)
++			}
++			version.Expected = dockerversion.InitCommitID[0:n]
+ 		}
+ 	}
+ 	if version.ID == "" && strings.HasPrefix(parts[0], "tini version ") {
+-- 
+2.17.1
+

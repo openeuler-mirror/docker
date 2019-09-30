@@ -1,0 +1,29 @@
+From f983b1959dae1d5f0dcae1f7480db5ae69906f74 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Wed, 20 Feb 2019 11:45:45 +0800
+Subject: [PATCH 104/111] docker stats: increase the timeout of docker
+ stats command
+
+reason:Increase the timeout of docker stats command, in case of data lost.
+
+Change-Id: Ib698f7cfdc06928838b343821a6bdca875327ff7
+---
+ components/cli/cli/command/container/stats.go                 | 2 +-
+ 5 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/components/cli/cli/command/container/stats.go b/components/cli/cli/command/container/stats.go
+index 1f9e1b8556..8387fc988d 100644
+--- a/components/cli/cli/command/container/stats.go
++++ b/components/cli/cli/command/container/stats.go
+@@ -172,7 +172,7 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
+ 
+ 		// Do a quick pause to detect any error with the provided list of
+ 		// container names.
+-		time.Sleep(1500 * time.Millisecond)
++		time.Sleep(2500 * time.Millisecond)
+ 		var errs []string
+ 		cStats.mu.Lock()
+ 		for _, c := range cStats.cs {
+-- 
+2.17.1
+

@@ -1,0 +1,104 @@
+From 7a965f7491e5f60e27ce1f6c052aa139f80e0744 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:14:42 +0800
+Subject: [PATCH 008/111] filelimit: Ignore host kernel whether suport
+ files limit when run a secure container
+
+reason:Ignore host kernel whether suport files limit when run a secure
+container.
+
+Change-Id: Iabd2c54492465a8df53375206d5ff600d9da7f6e
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/container.go      |  2 +-
+ components/engine/daemon/daemon_unix.go    | 15 +++++++++------
+ components/engine/daemon/daemon_windows.go |  6 +++---
+ 3 files changed, 13 insertions(+), 10 deletions(-)
+
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index c8e2053970..bd96de2571 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -348,7 +348,7 @@ func (daemon *Daemon) verifyContainerSettings(platform string, hostConfig *conta
+ 		warnings []string
+ 	)
+ 	// Now do platform-specific verification
+-	if warnings, err = verifyPlatformContainerSettings(daemon, hostConfig, config, update); err != nil {
++	if warnings, err = daemon.verifyPlatformContainerSettings(hostConfig, config, update); err != nil {
+ 		return warnings, err
+ 	}
+ 	if hostConfig.NetworkMode.IsHost() && len(hostConfig.PortBindings) > 0 {
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 138b8ac544..f4b75055f5 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -350,8 +350,9 @@ func adaptSharedNamespaceContainer(daemon containerGetter, hostConfig *container
+ 	}
+ }
+ 
+-func verifyContainerResources(resources *containertypes.Resources, sysInfo *sysinfo.SysInfo, update bool) ([]string, error) {
++func (daemon *Daemon) verifyContainerResources(hostConfig *containertypes.HostConfig, sysInfo *sysinfo.SysInfo, update bool) ([]string, error) {
+ 	warnings := []string{}
++	resources := &hostConfig.Resources
+ 	fixMemorySwappiness(resources)
+ 
+ 	// memory subsystem checks and adjustments
+@@ -426,9 +427,11 @@ func verifyContainerResources(resources *containertypes.Resources, sysInfo *sysi
+ 	}
+ 
+ 	if resources.FilesLimit != 0 && !sysInfo.FilesLimit {
+-		warnings = append(warnings, "Your kernel does not support files limit capabilities, files limit discarded.")
+-		logrus.Warnf("Your kernel does not support files limit capabilities, files limit discarded.")
+-		resources.FilesLimit = 0
++		if daemon.IsNativeRuntime(hostConfig.Runtime) {
++			warnings = append(warnings, "Your kernel does not support files limit capabilities, files limit discarded.")
++			logrus.Warnf("Your kernel does not support files limit capabilities, files limit discarded.")
++			resources.FilesLimit = 0
++		}
+ 	}
+ 
+ 	// cpu subsystem checks and adjustments
+@@ -580,11 +583,11 @@ func UsingSystemd(config *config.Config) bool {
+ 
+ // verifyPlatformContainerSettings performs platform-specific validation of the
+ // hostconfig and config structures.
+-func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.HostConfig, config *containertypes.Config, update bool) ([]string, error) {
++func (daemon *Daemon) verifyPlatformContainerSettings(hostConfig *containertypes.HostConfig, config *containertypes.Config, update bool) ([]string, error) {
+ 	var warnings []string
+ 	sysInfo := sysinfo.New(true)
+ 
+-	w, err := verifyContainerResources(&hostConfig.Resources, sysInfo, update)
++	w, err := daemon.verifyContainerResources(hostConfig, sysInfo, update)
+ 
+ 	// no matter err is nil or not, w could have data in itself.
+ 	warnings = append(warnings, w...)
+diff --git a/components/engine/daemon/daemon_windows.go b/components/engine/daemon/daemon_windows.go
+index 04d3de9924..4812236bc2 100644
+--- a/components/engine/daemon/daemon_windows.go
++++ b/components/engine/daemon/daemon_windows.go
+@@ -75,7 +75,7 @@ func (daemon *Daemon) adaptContainerSettings(hostConfig *containertypes.HostConf
+ 	return nil
+ }
+ 
+-func verifyContainerResources(resources *containertypes.Resources, isHyperv bool) ([]string, error) {
++func (daemon *Daemon) verifyContainerResources(resources *containertypes.Resources, isHyperv bool) ([]string, error) {
+ 	warnings := []string{}
+ 	fixMemorySwappiness(resources)
+ 	if !isHyperv {
+@@ -191,10 +191,10 @@ func verifyContainerResources(resources *containertypes.Resources, isHyperv bool
+ 
+ // verifyPlatformContainerSettings performs platform-specific validation of the
+ // hostconfig and config structures.
+-func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.HostConfig, config *containertypes.Config, update bool) ([]string, error) {
++func (daemon *Daemon) verifyPlatformContainerSettings(hostConfig *containertypes.HostConfig, config *containertypes.Config, update bool) ([]string, error) {
+ 	warnings := []string{}
+ 
+-	hyperv := daemon.runAsHyperVContainer(hostConfig)
++	hyperv := daemon.daemon.runAsHyperVContainer(hostConfig)
+ 	if !hyperv && system.IsWindowsClient() && !system.IsIoTCore() {
+ 		// @engine maintainers. This block should not be removed. It partially enforces licensing
+ 		// restrictions on Windows. Ping @jhowardmsft if there are concerns or PRs to change this.
+-- 
+2.17.1
+

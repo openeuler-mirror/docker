@@ -1,0 +1,39 @@
+From 415f93f45004d4082d3a7bcfdee122b584cd2e57 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Tue, 8 Jan 2019 19:34:41 +0800
+Subject: [PATCH 050/111] volume:  Make v.opts to nil if opts.json is
+ null
+
+reason:Make v.opts to nil if opts.json is null
+
+cherry-pick from docker 1.11.2:
+- 1b9344b Make v.opts to nil if opts.json is null
+
+Change-Id: I59d6ebb41cbb908d72beb4f9f6c645cb7ae2c4ba
+Signed-off-by: Lei Jitang <leijitang@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/volume/local/local.go | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/components/engine/volume/local/local.go b/components/engine/volume/local/local.go
+index 7190de9ed6..2e865815a9 100644
+--- a/components/engine/volume/local/local.go
++++ b/components/engine/volume/local/local.go
+@@ -89,6 +89,13 @@ func New(scope string, rootIdentity idtools.Identity) (*Root, error) {
+ 				v.opts = &opts
+ 			}
+ 
++			// For the local volumes created without options,
++			// the opts.json is null, so all the value in v.opts is null
++			// We should make v.opts to nil to avoid v.mount
++			if v.opts != nil && v.opts.MountType == "" && v.opts.MountOpts == "" && v.opts.MountDevice == "" {
++				v.opts = nil
++			}
++
+ 			// unmount anything that may still be mounted (for example, from an unclean shutdown)
+ 			mount.Unmount(v.path)
+ 		}
+-- 
+2.17.1
+

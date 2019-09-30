@@ -1,0 +1,616 @@
+From 7e41c5cf67a5deaa542d3907a257adf6ae6c976b Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:07:09 +0800
+Subject: [PATCH 001/111] pause: move pause function to docker
+
+reason: The origin pause function has a long callstack from
+docker->containerd->runc,it is waste a lot of time.
+Now we move this function to docker, docker will update freeze
+cgroup directly.
+
+Change-Id: I8c26d5b4ed71fb30563db0d4e77167b5b68ccad9
+Signed-off-by: Wentao Zhang <zhangwentao234@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/container/container.go      |   1 +
+ components/engine/daemon/daemon.go            |  53 ++++++
+ components/engine/daemon/freezer/cgroup_fs.go |  94 +++++++++
+ .../engine/daemon/freezer/cgroup_systemd.go   |  59 ++++++
+ components/engine/daemon/freezer/freezer.go   | 179 ++++++++++++++++++
+ components/engine/daemon/oci_linux.go         |   1 +
+ components/engine/daemon/pause.go             |  19 +-
+ components/engine/daemon/unpause.go           |  17 +-
+ .../engine/libcontainerd/utils_linux.go       |  25 +++
+ .../engine/libcontainerd/utils_windows.go     |   7 +-
+ 10 files changed, 449 insertions(+), 6 deletions(-)
+ create mode 100644 components/engine/daemon/freezer/cgroup_fs.go
+ create mode 100644 components/engine/daemon/freezer/cgroup_systemd.go
+ create mode 100644 components/engine/daemon/freezer/freezer.go
+ create mode 100644 components/engine/libcontainerd/utils_linux.go
+
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index 6a5907c34b..f74676f7ee 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -106,6 +106,7 @@ type Container struct {
+ 	// Fields here are specific to Windows
+ 	NetworkSharedContainerID string   `json:"-"`
+ 	SharedEndpointList       []string `json:"-"`
++	CgroupParent             string
+ }
+ 
+ // NewBaseContainer creates a new container with its
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index a307863017..8d6b4d8546 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -35,6 +35,7 @@ import (
+ 	"github.com/docker/docker/daemon/discovery"
+ 	"github.com/docker/docker/daemon/events"
+ 	"github.com/docker/docker/daemon/exec"
++	"github.com/docker/docker/daemon/freezer"
+ 	"github.com/docker/docker/daemon/images"
+ 	"github.com/docker/docker/daemon/logger"
+ 	"github.com/docker/docker/daemon/network"
+@@ -197,6 +198,53 @@ func (daemon *Daemon) NewResolveOptionsFunc() resolver.ResolveOptionsFunc {
+ 	}
+ }
+ 
++func (daemon *Daemon) updatePauseStatus(c *container.Container) error {
++	if !daemon.IsNativeRuntime(c.HostConfig.Runtime) {
++		return nil
++	}
++
++	// update docker pause status.
++	// for old container, CgroupParent may be empty.
++	if c.CgroupParent == "" {
++		spec, err := libcontainerd.LoadContainerSpec(filepath.Join(daemon.configStore.ExecRoot, "libcontainerd"), c.ID)
++		if err != nil {
++			return err
++		}
++		c.CgroupParent = spec.Linux.CgroupsPath
++	}
++
++	if !c.IsRunning() {
++		c.Paused = false
++		return nil
++	}
++
++	useSystemd := UsingSystemd(daemon.configStore)
++	freeze, err := freezer.New(c.ID, c.CgroupParent, useSystemd)
++	if err != nil {
++		return err
++	}
++
++	paused, err := freeze.IsPaused()
++	if err != nil {
++		return err
++	}
++	c.Paused = paused
++	return nil
++}
++
++func (daemon *Daemon) IsNativeRuntime(runtime string) bool {
++	// For the containers which created by old docker (do not support multi-runtime)
++	// c.HostConfig.Runtime may be empty. just use the default runtime.
++	if runtime == "" {
++		runtime = daemon.configStore.GetDefaultRuntimeName()
++	}
++	rt := daemon.configStore.GetRuntime(runtime)
++	if rt != nil && filepath.Base(rt.Path) == DefaultRuntimeBinary {
++		return true
++	}
++	return false
++}
++
+ func (daemon *Daemon) restore() error {
+ 	containers := make(map[string]*container.Container)
+ 
+@@ -244,6 +292,11 @@ func (daemon *Daemon) restore() error {
+ 			delete(containers, id)
+ 			continue
+ 		}
++
++		if err := daemon.updatePauseStatus(c); err != nil {
++			logrus.Errorf("Failed to update pause status for container %s: %s", c.ID, err)
++		}
++
+ 		if err := daemon.Register(c); err != nil {
+ 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
+ 			delete(containers, id)
+diff --git a/components/engine/daemon/freezer/cgroup_fs.go b/components/engine/daemon/freezer/cgroup_fs.go
+new file mode 100644
+index 0000000000..5822c3a659
+--- /dev/null
++++ b/components/engine/daemon/freezer/cgroup_fs.go
+@@ -0,0 +1,94 @@
++package freezer
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"sync"
++
++	"github.com/opencontainers/runc/libcontainer/cgroups"
++	"github.com/opencontainers/runc/libcontainer/configs"
++	"github.com/opencontainers/runc/libcontainer/utils"
++)
++
++// The absolute path to the root of the cgroup hierarchies.
++var cgroupRootLock sync.Mutex
++var cgroupRoot string
++
++func fsCgroupPath(subsystem string, c *configs.Cgroup) (string, error) {
++	rawRoot, err := getCgroupRoot()
++	if err != nil {
++		return "", err
++	}
++
++	if (c.Name != "" || c.Parent != "") && c.Path != "" {
++		return "", fmt.Errorf("cgroup: either Path or Name and Parent should be used")
++	}
++
++	// XXX: Do not remove this code. Path safety is important! -- cyphar
++	cgPath := utils.CleanPath(c.Path)
++	cgParent := utils.CleanPath(c.Parent)
++	cgName := utils.CleanPath(c.Name)
++
++	innerPath := cgPath
++	if innerPath == "" {
++		innerPath = filepath.Join(cgParent, cgName)
++	}
++
++	mnt, root, err := cgroups.FindCgroupMountpointAndRoot(subsystem)
++	// If we didn't mount the subsystem, there is no point we make the path.
++	if err != nil {
++		return "", err
++	}
++
++	// If the cgroup name/path is absolute do not look relative to the cgroup of the init process.
++	if filepath.IsAbs(innerPath) {
++		// Sometimes subsystems can be mounted together as 'cpu,cpuacct'.
++		return filepath.Join(rawRoot, filepath.Base(mnt), innerPath), nil
++	}
++
++	parentPath, err := parentPath(subsystem, mnt, root)
++	if err != nil {
++		return "", err
++	}
++
++	return filepath.Join(parentPath, innerPath), nil
++}
++
++func parentPath(subsystem, mountpoint, root string) (string, error) {
++	// Use GetThisCgroupDir instead of GetInitCgroupDir, because the creating
++	// process could in container and shared pid namespace with host, and
++	// /proc/1/cgroup could point to whole other world of cgroups.
++	initPath, err := cgroups.GetOwnCgroup(subsystem)
++	if err != nil {
++		return "", err
++	}
++	// This is needed for nested containers, because in /proc/self/cgroup we
++	// see pathes from host, which don't exist in container.
++	relDir, err := filepath.Rel(root, initPath)
++	if err != nil {
++		return "", err
++	}
++	return filepath.Join(mountpoint, relDir), nil
++}
++
++func getCgroupRoot() (string, error) {
++	cgroupRootLock.Lock()
++	defer cgroupRootLock.Unlock()
++
++	if cgroupRoot != "" {
++		return cgroupRoot, nil
++	}
++
++	root, err := cgroups.FindCgroupMountpointDir()
++	if err != nil {
++		return "", err
++	}
++
++	if _, err := os.Stat(root); err != nil {
++		return "", err
++	}
++
++	cgroupRoot = root
++	return cgroupRoot, nil
++}
+diff --git a/components/engine/daemon/freezer/cgroup_systemd.go b/components/engine/daemon/freezer/cgroup_systemd.go
+new file mode 100644
+index 0000000000..4a05d04910
+--- /dev/null
++++ b/components/engine/daemon/freezer/cgroup_systemd.go
+@@ -0,0 +1,59 @@
++package freezer
++
++import (
++	"fmt"
++	"path/filepath"
++	"strings"
++
++	"github.com/opencontainers/runc/libcontainer/cgroups"
++	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
++	"github.com/opencontainers/runc/libcontainer/configs"
++)
++
++var (
++	systemdEnabledChecked = false
++	systemdEnabled        = false
++)
++
++func SystemdEnabled() bool {
++	if systemdEnabledChecked {
++		return systemdEnabled
++	}
++	systemdEnabledChecked = true
++	systemdEnabled = systemd.UseSystemd()
++	return systemdEnabled
++}
++
++func systemdCgroupPath(subsystem string, c *configs.Cgroup) (string, error) {
++	mountpoint, err := cgroups.FindCgroupMountpoint(subsystem)
++	if err != nil {
++		return "", err
++	}
++
++	initPath, err := cgroups.GetInitCgroup(subsystem)
++	if err != nil {
++		return "", err
++	}
++	// if pid 1 is systemd 226 or later, it will be in init.scope, not the root
++	initPath = strings.TrimSuffix(filepath.Clean(initPath), "init.scope")
++
++	slice := "system.slice"
++	if c.Parent != "" {
++		slice = c.Parent
++	}
++
++	slice, err = systemd.ExpandSlice(slice)
++	if err != nil {
++		return "", err
++	}
++
++	return filepath.Join(mountpoint, initPath, slice, getUnitName(c)), nil
++}
++
++func getUnitName(c *configs.Cgroup) string {
++	// by default, we create a scope unless the user explicitly asks for a slice.
++	if !strings.HasSuffix(c.Name, ".slice") {
++		return fmt.Sprintf("%s-%s.scope", c.ScopePrefix, c.Name)
++	}
++	return c.Name
++}
+diff --git a/components/engine/daemon/freezer/freezer.go b/components/engine/daemon/freezer/freezer.go
+new file mode 100644
+index 0000000000..774f5c21ed
+--- /dev/null
++++ b/components/engine/daemon/freezer/freezer.go
+@@ -0,0 +1,179 @@
++package freezer
++
++import (
++	"bytes"
++	"fmt"
++	"io/ioutil"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/opencontainers/runc/libcontainer/configs"
++	"github.com/opencontainers/runc/libcontainer/utils"
++)
++
++// Freezer is the interface which could be used to pause/resume container,
++// And it could be used to get the real container paused status of a container too.
++type Freezer interface {
++	// Pause will set the container to pause state by writing freeze cgroup.
++	Pause() error
++
++	// Resume will set the container to running state by writing freeze cgroup.
++	Resume() error
++
++	// IsPaused will return if the container is paused or not by reading cgroup information.
++	IsPaused() (bool, error)
++}
++
++func writeFile(dir, file, data string) error {
++	// Normally dir should not be empty, one case is that cgroup subsystem
++	// is not mounted, we will get empty dir, and we want it fail here.
++	if dir == "" {
++		return fmt.Errorf("no such directory for %s", file)
++	}
++	if err := ioutil.WriteFile(filepath.Join(dir, file), []byte(data), 0700); err != nil {
++		return fmt.Errorf("failed to write %v to %v: %v", data, file, err)
++	}
++	return nil
++}
++
++func readFile(dir, file string) (string, error) {
++	data, err := ioutil.ReadFile(filepath.Join(dir, file))
++	return string(data), err
++}
++
++// New will create a Freezer interface for caller
++func New(cid, cgroupParent string, useSystemdCgroup bool) (Freezer, error) {
++	if useSystemdCgroup && !SystemdEnabled() {
++		return nil, fmt.Errorf("systemd cgroup flag passed, but systemd support for managing cgroups is not available")
++	}
++	cgroupConfig, err := prepareCgroupConfig(cid, cgroupParent, useSystemdCgroup)
++	if err != nil {
++		return nil, err
++	}
++
++	return newFreezer(useSystemdCgroup, cgroupConfig)
++}
++
++func prepareCgroupConfig(cid, cgroupsPath string, useSystemdCgroup bool) (*configs.Cgroup, error) {
++	var myCgroupPath string
++	c := &configs.Cgroup{
++		Resources: &configs.Resources{},
++	}
++	if cgroupsPath != "" {
++		myCgroupPath = utils.CleanPath(cgroupsPath)
++		if useSystemdCgroup {
++			myCgroupPath = cgroupsPath
++		}
++	}
++
++	if useSystemdCgroup {
++		if myCgroupPath == "" {
++			c.Parent = "system.slice"
++			c.ScopePrefix = "runc"
++			c.Name = cid
++		} else {
++			// Parse the path from expected "slice:prefix:name"
++			// for e.g. "system.slice:docker:1234"
++			parts := strings.Split(myCgroupPath, ":")
++			if len(parts) != 3 {
++				return nil, fmt.Errorf("expected cgroupsPath to be of format \"slice:prefix:name\" for systemd cgroups")
++			}
++			c.Parent = parts[0]
++			c.ScopePrefix = parts[1]
++			c.Name = parts[2]
++		}
++	} else {
++		if myCgroupPath == "" {
++			c.Name = cid
++		}
++		c.Path = myCgroupPath
++	}
++	return c, nil
++}
++
++func newFreezer(useSystemdCgroup bool, cgroup *configs.Cgroup) (Freezer, error) {
++	var err error
++	var path string
++
++	if useSystemdCgroup {
++		path, err = systemdCgroupPath("freezer", cgroup)
++		if err != nil {
++			return nil, err
++		}
++	} else {
++		path, err = fsCgroupPath("freezer", cgroup)
++		if err != nil {
++			return nil, err
++		}
++	}
++	return &freezer{path: path}, nil
++}
++
++type freezer struct {
++	sync.Mutex
++	path string
++}
++
++// Pause will set the container to pause state by writing freeze cgroup.
++func (f *freezer) Pause() error {
++	f.Lock()
++	defer f.Unlock()
++
++	if err := f.updateCgroup(string(configs.Frozen)); err != nil {
++		return err
++	}
++
++	tasks, err := readFile(f.path, "tasks")
++	if err != nil {
++		return fmt.Errorf("failed to check container cgroup task status: %v", err)
++	}
++
++	if strings.TrimSpace(tasks) == "" {
++		return fmt.Errorf("error: no tasks running in freeze cgroup")
++	}
++	return nil
++}
++
++// Resume will set the container to running state by writing freeze cgroup.
++func (f *freezer) Resume() error {
++	f.Lock()
++	defer f.Unlock()
++	return f.updateCgroup(string(configs.Thawed))
++}
++
++// IsPaused will return if the container is paused or not by reading cgroup information.
++func (f *freezer) IsPaused() (bool, error) {
++	f.Lock()
++	defer f.Unlock()
++
++	data, err := readFile(f.path, "freezer.state")
++	if err != nil {
++		// If freezer cgroup is not mounted, the container would just be not paused.
++		if os.IsNotExist(err) {
++			return false, nil
++		}
++		return false, fmt.Errorf("failed to check container status: %v", err)
++	}
++	return bytes.Equal(bytes.TrimSpace([]byte(data)), []byte("FROZEN")), nil
++}
++
++func (f *freezer) updateCgroup(state string) error {
++	if err := writeFile(f.path, "freezer.state", state); err != nil {
++		return err
++	}
++
++	for {
++		newState, err := readFile(f.path, "freezer.state")
++		if err != nil {
++			return err
++		}
++		if strings.TrimSpace(newState) == state {
++			break
++		}
++		time.Sleep(1 * time.Millisecond)
++	}
++	return nil
++}
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index 7611fc054d..864d22fbcb 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -711,6 +711,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (retSpec *specs.Spec, e
+ 		cgroupsPath = filepath.Join(parent, c.ID)
+ 	}
+ 	s.Linux.CgroupsPath = cgroupsPath
++	c.CgroupParent = cgroupsPath
+ 
+ 	if err := setResources(&s, c.HostConfig.Resources); err != nil {
+ 		return nil, fmt.Errorf("linux runtime spec resources: %v", err)
+diff --git a/components/engine/daemon/pause.go b/components/engine/daemon/pause.go
+index be6ec1b92a..972baa961f 100644
+--- a/components/engine/daemon/pause.go
++++ b/components/engine/daemon/pause.go
+@@ -5,6 +5,7 @@ import (
+ 	"fmt"
+ 
+ 	"github.com/docker/docker/container"
++	"github.com/docker/docker/daemon/freezer"
+ 	"github.com/sirupsen/logrus"
+ )
+ 
+@@ -38,8 +39,22 @@ func (daemon *Daemon) containerPause(container *container.Container) error {
+ 		return errContainerIsRestarting(container.ID)
+ 	}
+ 
+-	if err := daemon.containerd.Pause(context.Background(), container.ID); err != nil {
+-		return fmt.Errorf("Cannot pause container %s: %s", container.ID, err)
++	if daemon.IsNativeRuntime(container.HostConfig.Runtime) {
++		freezer, err := freezer.New(container.ID, container.CgroupParent, UsingSystemd(daemon.configStore))
++		if err != nil {
++			return fmt.Errorf("Failed to create freezer for container %s: %v", container.ID, err)
++		}
++
++		if err := freezer.Pause(); err != nil {
++			return fmt.Errorf("Cannot pause container %s: %v", container.ID, err)
++		}
++
++		container.Paused = true
++		daemon.LogContainerEvent(container, "pause")
++	} else {
++		if err := daemon.containerd.Pause(context.Background(), container.ID); err != nil {
++			return fmt.Errorf("Cannot pause container %s: %s", container.ID, err)
++		}
+ 	}
+ 
+ 	container.Paused = true
+diff --git a/components/engine/daemon/unpause.go b/components/engine/daemon/unpause.go
+index 27648ae72e..4a8225258f 100644
+--- a/components/engine/daemon/unpause.go
++++ b/components/engine/daemon/unpause.go
+@@ -5,6 +5,7 @@ import (
+ 	"fmt"
+ 
+ 	"github.com/docker/docker/container"
++	"github.com/docker/docker/daemon/freezer"
+ 	"github.com/sirupsen/logrus"
+ )
+ 
+@@ -27,8 +28,20 @@ func (daemon *Daemon) containerUnpause(container *container.Container) error {
+ 		return fmt.Errorf("Container %s is not paused", container.ID)
+ 	}
+ 
+-	if err := daemon.containerd.Resume(context.Background(), container.ID); err != nil {
+-		return fmt.Errorf("Cannot unpause container %s: %s", container.ID, err)
++	if daemon.IsNativeRuntime(container.HostConfig.Runtime) {
++		freezer, err := freezer.New(container.ID, container.CgroupParent, UsingSystemd(daemon.configStore))
++		if err != nil {
++			return fmt.Errorf("Failed to create freezer for container %s: %v", container.ID, err)
++		}
++		if err := freezer.Resume(); err != nil {
++			return fmt.Errorf("Cannot unpause container %s: %s", container.ID, err)
++		}
++		container.Paused = false
++		daemon.LogContainerEvent(container, "unpause")
++	} else {
++		if err := daemon.containerd.Resume(context.Background(), container.ID); err != nil {
++			return fmt.Errorf("Cannot unpause container %s: %s", container.ID, err)
++		}
+ 	}
+ 
+ 	container.Paused = false
+diff --git a/components/engine/libcontainerd/utils_linux.go b/components/engine/libcontainerd/utils_linux.go
+new file mode 100644
+index 0000000000..f9b3e64db9
+--- /dev/null
++++ b/components/engine/libcontainerd/utils_linux.go
+@@ -0,0 +1,25 @@
++package libcontainerd
++
++import (
++	"encoding/json"
++	"io/ioutil"
++	"path/filepath"
++
++	"github.com/opencontainers/runtime-spec/specs-go"
++)
++
++func LoadContainerSpec(stateDir, id string) (*specs.Spec, error) {
++	var spec specs.Spec
++	dir, err := filepath.Abs(stateDir)
++	if err != nil {
++		return nil, err
++	}
++	dt, err := ioutil.ReadFile(filepath.Join(dir, id, "config.json"))
++	if err != nil {
++		return nil, err
++	}
++	if err := json.Unmarshal(dt, &spec); err != nil {
++		return nil, err
++	}
++	return &spec, nil
++}
+diff --git a/components/engine/libcontainerd/utils_windows.go b/components/engine/libcontainerd/utils_windows.go
+index aabb9aeaaa..a8ba3629a3 100644
+--- a/components/engine/libcontainerd/utils_windows.go
++++ b/components/engine/libcontainerd/utils_windows.go
+@@ -1,6 +1,7 @@
+ package libcontainerd // import "github.com/docker/docker/libcontainerd"
+ 
+ import (
++	"fmt"
+ 	"strings"
+ 
+ 	opengcs "github.com/Microsoft/opengcs/client"
+@@ -19,10 +20,12 @@ func setupEnvironmentVariables(a []string) map[string]string {
+ 	return r
+ }
+ 
++func LoadContainerSpec(stateDir, id string) (*specs.Spec, error) {
++	return nil, fmt.Errorf("not supported")
++}
++
+ // Apply for the LCOW option is a no-op.
+ func (s *LCOWOption) Apply(interface{}) error {
+-	return nil
+-}
+ 
+ // debugGCS is a dirty hack for debugging for Linux Utility VMs. It simply
+ // runs a bunch of commands inside the UVM, but seriously aides in advanced debugging.
+-- 
+2.17.1
+

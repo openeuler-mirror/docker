@@ -1,0 +1,82 @@
+From e81d103000ae3213b91ed54410ddb20d911ddc1a Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:15:56 +0800
+Subject: [PATCH 012/111] hookspec:  Security enhancement for hooks
+
+reason: Currently docker support running hooks with any path, this is insecure.
+To solve this, we need to restrict path to specified path, e.g.
+"/var/lib/docker/hooks" or "/var/lib/docker/1000.1000/hooks" if user
+remap enabled for user ns.
+
+Change-Id: I9cff78f1a1105dcb4bc0b00c8e6e715904dfb778
+Signed-off-by: Zhang Wei <zhangwei555@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/container.go | 37 +++++++++++++++++++++++++++
+ components/engine/daemon/daemon.go    |  1 +
+ 2 files changed, 38 insertions(+)
+
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index 8e68904b16..0864443513 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -250,6 +250,43 @@ func (daemon *Daemon) registerHooks(container *container.Container, hostConfig *
+ 	if err = json.NewDecoder(f).Decode(&container.Hooks); err != nil {
+ 		return fmt.Errorf("malformed hook spec, is your spec file in json format? error: %v", err)
+ 	}
++
++	// hook path must be absolute and must be subdir of XXX
++	if err = daemon.validateHook(container); err != nil {
++		return err
++	}
++	return nil
++}
++
++func (daemon *Daemon) validateHook(container *container.Container) error {
++	for _, v := range container.Hooks.Prestart {
++		if err := daemon.validateHookPath(v.Path); err != nil {
++			return err
++		}
++	}
++	for _, v := range container.Hooks.Poststart {
++		if err := daemon.validateHookPath(v.Path); err != nil {
++			return err
++		}
++	}
++	for _, v := range container.Hooks.Poststop {
++		if err := daemon.validateHookPath(v.Path); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func (daemon *Daemon) validateHookPath(path string) error {
++	// hook path must be absolute and must be subdir of XXX
++	path = filepath.Clean(path)
++	if !filepath.IsAbs(path) {
++		return fmt.Errorf("Hook path %q must be an absolute path", path)
++	}
++
++	if !filepath.HasPrefix(path, daemon.hookStore) {
++		return fmt.Errorf("hook program must be put under %q", daemon.hookStore)
++	}
+ 	return nil
+ }
+ 
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 8d6b4d8546..d1f3131c4f 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -95,6 +95,7 @@ type Daemon struct {
+ 	volumes           *volumesservice.VolumesService
+ 	discoveryWatcher  discovery.Reloader
+ 	root              string
++	hookStore         string
+ 	seccompEnabled    bool
+ 	apparmorEnabled   bool
+ 	shutdown          bool
+-- 
+2.17.1
+

@@ -1,0 +1,73 @@
+From f669a33c163fb53e64d5b0582418a38662927c87 Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Fri, 10 May 2019 16:52:19 +0800
+Subject: [PATCH] docker:  add start-timeout for container
+
+Change-Id: Ife8660b3fc665535086bcb0ea56454c7f5147140
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/engine/cmd/dockerd/config_unix.go   |  1 +
+ components/engine/cmd/dockerd/daemon.go        | 19 +++++++++++++++++++
+ components/engine/daemon/config/config_unix.go |  1 +
+ 3 files changed, 21 insertions(+)
+
+diff --git a/components/engine/cmd/dockerd/config_unix.go b/components/engine/cmd/dockerd/config_unix.go
+index 2dbd84b..8d38d75 100644
+--- a/components/engine/cmd/dockerd/config_unix.go
++++ b/components/engine/cmd/dockerd/config_unix.go
+@@ -46,5 +46,6 @@ func installConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
+ 	flags.BoolVar(&conf.NoNewPrivileges, "no-new-privileges", false, "Set no-new-privileges by default for new containers")
+ 	flags.StringVar(&conf.IpcMode, "default-ipc-mode", config.DefaultIpcMode, `Default mode for containers ipc ("shareable" | "private")`)
+ 	flags.Var(&conf.NetworkConfig.DefaultAddressPools, "default-address-pool", "Default address pools for node specific local networks")
++	flags.StringVar(&conf.StartTimeout, "start-timeout", "2m", "Timeout duration for waiting on a container to start before it is killed")
+ 
+ }
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 8395373..ea00c56 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -94,6 +94,9 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
+ 		logrus.Warn("Running experimental build")
+ 	}
+ 
++	if err := cli.setRuntimeStartTimeout(); err != nil {
++		return err
++	}
+ 	logrus.SetFormatter(&logrus.TextFormatter{
+ 		TimestampFormat: jsonmessage.RFC3339NanoFixed,
+ 		DisableColors:   cli.Config.RawLogs,
+@@ -670,3 +673,19 @@ func systemContainerdRunning() bool {
+ 	_, err := os.Lstat(containerddefaults.DefaultAddress)
+ 	return err == nil
+ }
++
++func (cli *DaemonCli) setRuntimeStartTimeout() error {
++	minRuntimeTimeout := 30 * time.Second
++	maxRuntimeTimeout := 10 * time.Minute
++	env := "DOCKER_RUNTIME_START_TIMEOUT"
++	defaultRuntimeTimeout := "2m"
++	timeout := cli.Config.StartTimeout
++	if timeout != "" {
++		timeParse, err := time.ParseDuration(timeout)
++		if err != nil || timeParse < minRuntimeTimeout || timeParse > maxRuntimeTimeout {
++			return fmt.Errorf("start-timeout invalid value: %s, should in range [%s-%s]", timeout, minRuntimeTimeout, maxRuntimeTimeout)
++		}
++		return os.Setenv(env, timeout)
++	}
++	return os.Setenv(env, defaultRuntimeTimeout)
++}
+diff --git a/components/engine/daemon/config/config_unix.go b/components/engine/daemon/config/config_unix.go
+index 5ed6abd..d094269 100644
+--- a/components/engine/daemon/config/config_unix.go
++++ b/components/engine/daemon/config/config_unix.go
+@@ -37,6 +37,7 @@ type Config struct {
+ 	ShmSize              opts.MemBytes            `json:"default-shm-size,omitempty"`
+ 	NoNewPrivileges      bool                     `json:"no-new-privileges,omitempty"`
+ 	IpcMode              string                   `json:"default-ipc-mode,omitempty"`
++	StartTimeout         string                   `json:"start-timeout,omitempty"`
+ 	// ResolvConf is the path to the configuration of the host resolver
+ 	ResolvConf string `json:"resolv-conf,omitempty"`
+ }
+-- 
+1.8.3.1
+

@@ -1,0 +1,84 @@
+From 04094d4f0ca583bf2a3eccc390515840ad322853 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Thu, 17 Jan 2019 20:45:45 +0800
+Subject: [PATCH 055/111] docker:  range checking for memory and
+ memory.swap
+
+reason:range checking for memory and memory.swap, avoid overflow
+
+Cherry-pick from docker 1.11.2:
+- 3dd33a7 range checking for memory and memory.swap
+
+Change-Id: I1736627a3f847decd36117f307a4919707908b32
+Signed-off-by: stella <zhangyu235@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/cli/vendor/github.com/docker/go-units/size.go     | 4 ++++
+ components/engine/daemon/daemon_unix.go                      | 5 ++++-
+ .../engine/vendor/github.com/docker/go-units/Checklist       | 1 +
+ components/engine/vendor/github.com/docker/go-units/size.go  | 4 ++++
+ 4 files changed, 13 insertions(+), 1 deletion(-)
+ create mode 100644 components/engine/vendor/github.com/docker/go-units/Checklist
+
+diff --git a/components/cli/vendor/github.com/docker/go-units/size.go b/components/cli/vendor/github.com/docker/go-units/size.go
+index 85f6ab0715..2b47b662ba 100644
+--- a/components/cli/vendor/github.com/docker/go-units/size.go
++++ b/components/cli/vendor/github.com/docker/go-units/size.go
+@@ -104,5 +104,9 @@ func parseSize(sizeStr string, uMap unitMap) (int64, error) {
+ 		size *= float64(mul)
+ 	}
+ 
++	if int64(size) < 0 {
++		return -1, fmt.Errorf("%s converted to int64 overflowed!", sizeStr)
++	}
++
+ 	return int64(size), nil
+ }
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index d4a32a0b25..e48dfcd1ef 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -65,7 +65,7 @@ const (
+ 	linuxMinCPUShares = 2
+ 	linuxMaxCPUShares = 262144
+ 	platformSupported = true
+-	// It's not kernel limit, we want this 4M limit to supply a reasonable functional container
++	// It's not kernel limit, we want this 4MB limit to supply a reasonable functional container
+ 	linuxMinMemory = 4194304
+ 	// constants for remapped root settings
+ 	defaultIDSpecifier = "default"
+@@ -293,6 +293,9 @@ func (daemon *Daemon) adaptContainerSettings(hostConfig *containertypes.HostConf
+ 	if hostConfig.Memory > 0 && hostConfig.MemorySwap == 0 {
+ 		// By default, MemorySwap is set to twice the size of Memory.
+ 		hostConfig.MemorySwap = hostConfig.Memory * 2
++		if hostConfig.MemorySwap < 0 {
++			return fmt.Errorf("invalid memory swap! The memory swap is double of memory, and should be less than the maximum of int64.")
++		}
+ 	}
+ 	if hostConfig.ShmSize == 0 {
+ 		hostConfig.ShmSize = config.DefaultShmSize
+diff --git a/components/engine/vendor/github.com/docker/go-units/Checklist b/components/engine/vendor/github.com/docker/go-units/Checklist
+new file mode 100644
+index 0000000000..6b3f1461e8
+--- /dev/null
++++ b/components/engine/vendor/github.com/docker/go-units/Checklist
+@@ -0,0 +1 @@
++add value range checking when converting units
+\ No newline at end of file
+diff --git a/components/engine/vendor/github.com/docker/go-units/size.go b/components/engine/vendor/github.com/docker/go-units/size.go
+index 85f6ab0715..2b47b662ba 100644
+--- a/components/engine/vendor/github.com/docker/go-units/size.go
++++ b/components/engine/vendor/github.com/docker/go-units/size.go
+@@ -104,5 +104,9 @@ func parseSize(sizeStr string, uMap unitMap) (int64, error) {
+ 		size *= float64(mul)
+ 	}
+ 
++	if int64(size) < 0 {
++		return -1, fmt.Errorf("%s converted to int64 overflowed!", sizeStr)
++	}
++
+ 	return int64(size), nil
+ }
+-- 
+2.17.1
+

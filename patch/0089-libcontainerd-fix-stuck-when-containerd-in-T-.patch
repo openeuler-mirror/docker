@@ -1,0 +1,31 @@
+From 9a48f9b439a03e7fd5eeec4ff2cebac4cddf669f Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 30 Jan 2019 21:28:16 +0800
+Subject: [PATCH 089/111] libcontainerd:  fix stuck when containerd in
+ T-state
+
+reason: when containerd is alive but not responding, shall restart
+containerd avoid cmd stuck.
+
+Change-Id: Iab220c8988b50b39f4fd84be9454a0b097968751
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/libcontainerd/supervisor/remote_daemon.go   | 2 +-
+ 5 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/libcontainerd/supervisor/remote_daemon.go b/components/engine/libcontainerd/supervisor/remote_daemon.go
+index 095300f753..c5da3a56fe 100644
+--- a/components/engine/libcontainerd/supervisor/remote_daemon.go
++++ b/components/engine/libcontainerd/supervisor/remote_daemon.go
+@@ -307,7 +307,7 @@ func (r *remote) monitorDaemon(ctx context.Context) {
+ 			r.logger.WithError(err).WithField("binary", binaryName).Debug("daemon is not responding")
+ 
+ 			transientFailureCount++
+-			if transientFailureCount < maxConnectionRetryCount || system.IsProcessAlive(r.daemonPid) {
++			if transientFailureCount < maxConnectionRetryCount {
+ 				delay = time.After(time.Duration(transientFailureCount) * 200 * time.Millisecond)
+ 				continue
+ 			}
+-- 
+2.17.1
+

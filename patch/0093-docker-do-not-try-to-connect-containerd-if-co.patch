@@ -1,0 +1,31 @@
+From 03024503528f2355a666cb37a6b6bc3902bc977d Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Fri, 1 Feb 2019 17:34:44 +0800
+Subject: [PATCH 093/111] docker:  do not try to connect containerd if
+ containerd daemon is down
+
+reason:do not try to connect containerd if containerd daemon is down, reduce
+delay time to restart containerd.
+
+Change-Id: I7e6ab9e4c154a82b3b2609440cbfc7d3ea14d28d
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ components/engine/libcontainerd/supervisor/remote_daemon.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/libcontainerd/supervisor/remote_daemon.go b/components/engine/libcontainerd/supervisor/remote_daemon.go
+index c5da3a56fe..45cc3c3032 100644
+--- a/components/engine/libcontainerd/supervisor/remote_daemon.go
++++ b/components/engine/libcontainerd/supervisor/remote_daemon.go
+@@ -289,7 +289,7 @@ func (r *remote) monitorDaemon(ctx context.Context) {
+ 			}
+ 		}
+ 
+-		if client != nil {
++		if client != nil && system.IsProcessAlive(r.daemonPid) {
+ 			tctx, cancel := context.WithTimeout(ctx, healthCheckTimeout)
+ 			_, err := client.IsServing(tctx)
+ 			cancel()
+-- 
+2.17.1
+

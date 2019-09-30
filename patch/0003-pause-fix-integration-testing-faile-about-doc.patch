@@ -1,0 +1,50 @@
+From 8a897fcad4bf6d2f4be05bb3075640d65e98ac8e Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:13:24 +0800
+Subject: [PATCH 003/111] pause: fix integration testing faile about
+ `docker pause` status display
+
+reason:fix integration testing faile about `docker pause` status display
+
+Change-Id: I851b29171a33f5eb278800fb0f1e061bebb3745c
+Signed-off-by: leizhongkai <leizhongkai@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/pause.go   | 4 ++++
+ components/engine/daemon/unpause.go | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/components/engine/daemon/pause.go b/components/engine/daemon/pause.go
+index 972baa961f..6f9d8b0f70 100644
+--- a/components/engine/daemon/pause.go
++++ b/components/engine/daemon/pause.go
+@@ -50,6 +50,10 @@ func (daemon *Daemon) containerPause(container *container.Container) error {
+ 		}
+ 
+ 		container.Paused = true
++		daemon.setStateCounter(container)
++		if err := container.CheckpointTo(daemon.containersReplica); err != nil {
++			return err
++		}
+ 		daemon.LogContainerEvent(container, "pause")
+ 	} else {
+ 		if err := daemon.containerd.Pause(context.Background(), container.ID); err != nil {
+diff --git a/components/engine/daemon/unpause.go b/components/engine/daemon/unpause.go
+index 4a8225258f..290d2b1d0c 100644
+--- a/components/engine/daemon/unpause.go
++++ b/components/engine/daemon/unpause.go
+@@ -37,6 +37,10 @@ func (daemon *Daemon) containerUnpause(container *container.Container) error {
+ 			return fmt.Errorf("Cannot unpause container %s: %s", container.ID, err)
+ 		}
+ 		container.Paused = false
++		daemon.setStateCounter(container)
++		if err := container.CheckpointTo(daemon.containersReplica); err != nil {
++			return err
++		}
+ 		daemon.LogContainerEvent(container, "unpause")
+ 	} else {
+ 		if err := daemon.containerd.Resume(context.Background(), container.ID); err != nil {
+-- 
+2.17.1
+

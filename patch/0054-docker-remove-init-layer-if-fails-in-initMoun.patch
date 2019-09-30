@@ -1,0 +1,78 @@
+From 1fb61b2addb6043e8403a613b4229c20070f8bfe Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 18 Jan 2019 17:38:47 +0800
+Subject: [PATCH 054/111] docker:  remove init layer if fails in
+ initMount
+
+reason:remove init layer if fails in initMount
+
+Cherry-pick from docker 1.11.2:
+- 673c733 remove init layer if fails in initMount
+during initMount, operation could fails after device
+created, it should be removed during rollback
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+-------
+- 424970f fix metadata file deleted mistakely
+fix devicemapper metadata file "base" be deleted mistakely
+Signed-off-by: leizhongkai <leizhongkai@huawei.com>
+
+Change-Id: Ieb40a8cfd3272abf28bfb046d77ecb61aea02bfa
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/layer/layer_store.go | 22 +++++++++++++++-------
+ 1 file changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index 20c0195b79..cbb1ee4a19 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -599,16 +599,16 @@ func (ls *layerStore) CreateRWLayer(name string, parent ChainID, opts *CreateRWL
+ 		defer func() {
+ 			if err != nil {
+ 				m.Lock()
+-				if err := ls.driver.Remove(m.mountID); err != nil {
+-					logrus.Errorf("Error removing mounted layer during create rw layer %s: %s", m.name, err)
++				if deferErr := ls.driver.Remove(m.mountID); deferErr != nil {
++					logrus.Errorf("Error removing mounted layer during create rw layer %s: %s", m.name, deferErr)
+ 				}
+ 				if m.initID != "" {
+-					if err := ls.driver.Remove(m.initID); err != nil {
+-						logrus.Errorf("Error removing init layer during create rw layer %s: %s", m.name, err)
++					if deferErr := ls.driver.Remove(m.initID); deferErr != nil {
++						logrus.Errorf("Error removing init layer during create rw layer %s: %s", m.name, deferErr)
+ 					}
+ 				}
+-				if err := ls.store.RemoveMount(m.name); err != nil {
+-					logrus.Errorf("Error removing mount metadata during create rw layer %s: %s", m.name, err)
++				if deferErr := ls.store.RemoveMount(m.name); deferErr != nil {
++					logrus.Errorf("Error removing mount metadata during create rw layer %s: %s", m.name, deferErr)
+ 				}
+ 				m.Unlock()
+ 
+@@ -743,7 +743,7 @@ func (ls *layerStore) saveMount(mount *mountedLayer) error {
+ 	return nil
+ }
+ 
+-func (ls *layerStore) initMount(graphID, parent, mountLabel string, initFunc MountInit, storageOpt map[string]string) (string, error) {
++func (ls *layerStore) initMount(graphID, parent, mountLabel string, initFunc MountInit, storageOpt map[string]string) (id string, err error) {
+ 	// Use "<graph-id>-init" to maintain compatibility with graph drivers
+ 	// which are expecting this layer with this special name. If all
+ 	// graph drivers can be updated to not rely on knowing about this layer
+@@ -758,6 +758,14 @@ func (ls *layerStore) initMount(graphID, parent, mountLabel string, initFunc Mou
+ 	if err := ls.driver.CreateReadWrite(initID, parent, createOpts); err != nil {
+ 		return "", err
+ 	}
++	defer func() {
++		if err != nil {
++			if deferErr := ls.driver.Remove(initID); deferErr != nil {
++				logrus.Errorf("Error removing init layer during init mount %s: %s", initID, deferErr)
++			}
++		}
++	}()
++
+ 	p, err := ls.driver.Get(initID, "")
+ 	if err != nil {
+ 		return "", err
+-- 
+2.17.1
+

@@ -1,0 +1,40 @@
+From 82d288bb3b3457eaecf78510c9ecd86f91beaf2e Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 16 Apr 2019 10:34:11 +0800
+Subject: [PATCH] docker:  build with relro flags
+
+Change-Id: I227dd6dfcf4560671abd4a7e9362485591686933
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/cli/scripts/build/dynbinary | 2 +-
+ components/engine/hack/make/.binary    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/cli/scripts/build/dynbinary b/components/cli/scripts/build/dynbinary
+index c9f33be17b..db91da1a28 100755
+--- a/components/cli/scripts/build/dynbinary
++++ b/components/cli/scripts/build/dynbinary
+@@ -14,6 +14,6 @@ BEP_DIR=/tmp/docker-build-bep
+ BEP_FLAGS="-tmpdir=$BEP_DIR"
+ mkdir -p $BEP_DIR
+ 
+-go build -o "${TARGET}" -tags pkcs11 --ldflags " $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
++go build -o "${TARGET}" -tags pkcs11 --ldflags " -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
+ 
+ ln -sf "$(basename "${TARGET}")" build/docker
+diff --git a/components/engine/hack/make/.binary b/components/engine/hack/make/.binary
+index 7a203edf40..578e8aea5d 100755
+--- a/components/engine/hack/make/.binary
++++ b/components/engine/hack/make/.binary
+@@ -67,7 +67,7 @@ go build \
+ 	-o "$DEST/$BINARY_FULLNAME" \
+ 	"${BUILDFLAGS[@]}" \
+ 	-ldflags "
+-		$BEP_FLAGS
++		-extldflags=-zrelro -extldflags=-znow $BEP_FLAGS
+ 		$LDFLAGS
+ 		$LDFLAGS_STATIC_DOCKER
+ 		$DOCKER_LDFLAGS
+-- 
+2.17.1
+

@@ -1,0 +1,63 @@
+From 582b84ebefcdd71b963dd431fcf9d1d5f9a20552 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Mon, 18 Feb 2019 21:23:17 +0800
+Subject: [PATCH 100/111] proquota:  fix quota basesize
+
+reason:fix quota basesize
+
+Change-Id: I268c600b8c63965daf0086796c48ca4e85263e50
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/daemon/graphdriver/overlay2/overlay.go | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 71474f8f36..1a3c9c9d67 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -89,6 +89,7 @@ const (
+ type overlayOptions struct {
+ 	overrideKernelCheck bool
+ 	quota               quota.Quota
++	quotaBaseSize       uint64
+ }
+ 
+ // Driver contains information about the home directory and the list of active
+@@ -221,6 +222,7 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 		// Try to enable project quota support over xfs and extfs.
+ 		if d.quotaCtl, err = quota.NewControl(home, backingFs); err == nil {
+ 			projectQuotaSupported = true
++			d.options.quotaBaseSize = opts.quotaBaseSize
+ 		} else if opts.quota.Size > 0 {
+ 			return nil, fmt.Errorf("Storage option overlay2.size not supported. Filesystem does not support Project Quota: %v", err)
+ 		}
+@@ -280,7 +282,7 @@ func parseOptions(options []string) (*overlayOptions, error) {
+ 			if err != nil {
+ 				return nil, err
+ 			}
+-			o.quota.Size = uint64(size)
++			o.quotaBaseSize = uint64(size)
+ 		default:
+ 			return nil, fmt.Errorf("overlay2: unknown option %s", key)
+ 		}
+@@ -422,14 +422,14 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 		}
+ 	}()
+ 
+-	if (opts != nil && len(opts.StorageOpt) > 0) || d.options.quota.Size > 0 {
++	if opts != nil && (len(opts.StorageOpt) > 0 || d.options.quotaBaseSize > 0) {
+ 		driver := &Driver{}
+ 		if err := d.parseStorageOpt(opts.StorageOpt, driver); err != nil {
+ 			return err
+ 		}
+ 
+-		if driver.options.quota.Size == 0 && d.options.quota.Size > 0 {
+-			driver.options.quota.Size = d.options.quota.Size
++		if driver.options.quota.Size == 0 && d.options.quotaBaseSize > 0 {
++			driver.options.quota.Size = d.options.quotaBaseSize
+ 		}
+ 
+ 		if driver.options.quota.Size > 0 {
+-- 
+2.17.1
+

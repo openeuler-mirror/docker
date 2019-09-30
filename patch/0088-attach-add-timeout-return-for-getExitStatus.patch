@@ -1,0 +1,48 @@
+From 4f99f2ea6fac5d585cee3b7362b109dcf869beda Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Wed, 30 Jan 2019 13:42:34 +0800
+Subject: [PATCH 088/111] attach: add timeout return for getExitStatus
+
+reason:In cli/command/container/attach.go, func getExitStatus() will
+return until container turn to unrunning state. When we excute docker
+attach and other commands inside container together, for the state of
+container will not change, docker attach command is stuck.
+
+Change-Id: Ifda6096643c659341fd6d343eb4a8cbf08e5a71c
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/cli/cli/command/container/attach.go                | 4 ++++
+ 5 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/components/cli/cli/command/container/attach.go b/components/cli/cli/command/container/attach.go
+index de96a3b7d8..ff1014d70c 100644
+--- a/components/cli/cli/command/container/attach.go
++++ b/components/cli/cli/command/container/attach.go
+@@ -5,6 +5,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"net/http/httputil"
++	"time"
+ 
+ 	"github.com/docker/cli/cli"
+ 	"github.com/docker/cli/cli/command"
+@@ -150,6 +151,7 @@ func runAttach(dockerCli command.Cli, opts *attachOptions) error {
+ }
+ 
+ func getExitStatus(errC <-chan error, resultC <-chan container.ContainerWaitOKBody) error {
++	timeout := time.NewTimer(time.Second)
+ 	select {
+ 	case result := <-resultC:
+ 		if result.Error != nil {
+@@ -160,6 +162,8 @@ func getExitStatus(errC <-chan error, resultC <-chan container.ContainerWaitOKBo
+ 		}
+ 	case err := <-errC:
+ 		return err
++	case <-timeout.C:
++		return fmt.Errorf("Wait container status timeout.")
+ 	}
+ 
+ 	return nil
+-- 
+2.17.1
+

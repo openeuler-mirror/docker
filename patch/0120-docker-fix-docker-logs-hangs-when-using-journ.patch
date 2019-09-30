@@ -1,0 +1,30 @@
+From 34112ccb2adef535a339d32a517976f7674b22ee Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Fri, 10 May 2019 02:59:48 +0800
+Subject: [PATCH] docker:  fix docker logs hangs when using journald
+
+reason: Fix when using journald as log-driver, docker logs process hangs after container stops.
+
+Change-Id: I41832b77b0282376c6b2ffc77978c76a617361b8
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/engine/daemon/logger/journald/read.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/daemon/logger/journald/read.go b/components/engine/daemon/logger/journald/read.go
+index cadb97f..d4b1c75 100644
+--- a/components/engine/daemon/logger/journald/read.go
++++ b/components/engine/daemon/logger/journald/read.go
+@@ -303,6 +303,9 @@ func (s *journald) followJournal(logWatcher *logger.LogWatcher, j *C.sd_journal,
+ 		// Notify the other goroutine that its work is done.
+ 		C.close(pfd[1])
+ 		cursor = <-newCursor
++	case <-logWatcher.WatchProducerGone():
++		C.close(pfd[1])
++		cursor = <-newCursor
+ 	}
+ 
+ 	return cursor
+-- 
+1.8.3.1
+

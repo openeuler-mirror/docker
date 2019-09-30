@@ -1,0 +1,31 @@
+From da2bf67c793393f196effcf0f946e7d108448f4b Mon Sep 17 00:00:00 2001
+From: wujibin <wujibin@huawei.com>
+Date: Mon, 22 Jul 2019 11:28:55 +0800
+Subject: [PATCH] docker:  printf execid when task exit
+
+reason: distinguish execid and initid when task exit
+
+Change-Id: Iff89ab6463135a392560684c156e4dc9bf0150d5
+Signed-off-by: wujibin <wujibin@huawei.com>
+---
+ components/engine/libcontainerd/client_daemon.go | 1 +
+ 1 file changed, 1 insertion(+)
+ mode change 100644 => 100755 components/engine/libcontainerd/client_daemon.go
+
+diff --git a/components/engine/libcontainerd/client_daemon.go b/components/engine/libcontainerd/client_daemon.go
+old mode 100644
+new mode 100755
+index 491bda281c..858d6429f1
+--- a/components/engine/libcontainerd/client_daemon.go
++++ b/components/engine/libcontainerd/client_daemon.go
+@@ -828,6 +828,7 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 				c.logger.WithFields(logrus.Fields{
+ 					"topic": ev.Topic,
+ 					"containerID": t.ContainerID,
++					"ProcessID": t.ID,
+ 					"Pid": t.Pid,
+ 					"ExitStatus": t.ExitStatus,
+ 					"ExitedAt": t.ExitedAt,
+-- 
+2.19.0
+

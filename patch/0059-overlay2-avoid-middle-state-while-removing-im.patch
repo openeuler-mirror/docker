@@ -1,0 +1,110 @@
+From ef238d650231f8346078536b6133f147df11283a Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 18 Jan 2019 19:21:39 +0800
+Subject: [PATCH 059/111] overlay2:  avoid middle state while removing
+ images under overlay2
+
+reason:avoid middle state while removing images under overlay2
+
+	kill -9 daemon while rmi images may cause some inconsistent state
+	of that image
+
+	if image symlink is removed but the id directory remained. daemon
+	restart and load again, the images look fine but create container
+	with it will error out:
+	`docker: Error response from daemon: error creating overlay
+	mount to /var/lib/docker/overlay2/xxx-init/merged:
+	no such file or directory`
+
+	This patch move symlink removal after directory removal, and check
+	link file state while daemon restore, to clean up stale links.
+
+Change-Id: I44328bc2261c9ec73bcdcbed3d741e569cd4a834
+Signed-off-by: Deng Guangxing <dengguangxing@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ .../daemon/graphdriver/overlay2/overlay.go    | 40 ++++++++++++++++---
+ 1 file changed, 34 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 773d5232cc..cf8993e9f3 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -229,6 +229,8 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 		return nil, fmt.Errorf("Storage Option overlay2.size only supported for backingFS XFS or ext4. Found %v", backingFs)
+ 	}
+ 
++	d.cleanupLinkDir()
++
+ 	// figure out whether "index=off" option is recognized by the kernel
+ 	_, err = os.Stat("/sys/module/overlay/parameters/index")
+ 	switch {
+@@ -245,6 +247,19 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 	return d, nil
+ }
+ 
++func (d *Driver) cleanupLinkDir() {
++	filepath.Walk(path.Join(d.home, linkDir), func(path string, f os.FileInfo, err error) error {
++		if _, serr := filepath.EvalSymlinks(path); serr != nil {
++			logrus.Warnf("[overlay2]: remove invalid symlink: %s", path)
++			os.RemoveAll(path)
++		}
++		// always return nil, to walk all the symlink
++		return nil
++	})
++
++	return
++}
++
+ func parseOptions(options []string) (*overlayOptions, error) {
+ 	o := &overlayOptions{}
+ 	for _, option := range options {
+@@ -575,8 +590,11 @@ func (d *Driver) Remove(id string) error {
+ 	d.locker.Lock(id)
+ 	defer d.locker.Unlock(id)
+ 	dir := d.dir(id)
+-	lid, err := ioutil.ReadFile(path.Join(dir, "link"))
+-	if err == nil {
++	lid, lerr := ioutil.ReadFile(path.Join(dir, "link"))
++	if err := system.EnsureRemoveAll(dir); err != nil && !os.IsNotExist(err) {
++		return err
++	}
++	if lerr == nil {
+ 		if !verifyID(string(lid), idLength) {
+ 			logrus.WithField("storage-driver", "overlay2").Errorf("refusing to remove empty link for layer %v", id)
+ 		} else if err := os.RemoveAll(path.Join(d.home, linkDir, string(lid))); err != nil {
+@@ -568,9 +586,6 @@ func (d *Driver) Remove(id string) error {
+ 		}
+ 	}
+ 
+-	if err := system.EnsureRemoveAll(dir); err != nil && !os.IsNotExist(err) {
+-		return err
+-	}
+ 	return nil
+ }
+ 
+@@ -710,7 +725,20 @@ func (d *Driver) Put(id string) error {
+ 
+ // Exists checks to see if the id is already mounted.
+ func (d *Driver) Exists(id string) bool {
+-	_, rerr := os.Stat(d.dir(id))
++	var rerr error
++	defer func() {
++		if rerr != nil {
++			logrus.Warnf("layer(%s) not exist: %s", id, rerr)
++			d.Remove(id)
++		}
++	}()
++
++	// check if the id directory exist and is valid
++	// check if link file exist and get link string from it
++	// check if symlink file exist
++	// if symlink not exist, create a new one and update link file
++	// any steps failed ,we will return false and remove this id layer
++	_, rerr = os.Stat(d.dir(id))
+ 	if rerr == nil {
+ 		lstr, err := ioutil.ReadFile(path.Join(d.dir(id), "link"))
+ 		// link is valid
+-- 
+2.17.1
+

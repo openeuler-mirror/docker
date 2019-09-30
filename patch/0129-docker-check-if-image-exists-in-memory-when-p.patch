@@ -1,0 +1,142 @@
+From d66866bfd936c50b472c78268eb74ad6999b3490 Mon Sep 17 00:00:00 2001
+From: Fengtu Wang <wangfengtu@huawei.com>
+Date: Sat, 26 Aug 2017 18:55:55 +0800
+Subject: [PATCH] docker:  check if image exists in memory when pulling
+ image
+
+We only check if imageID exists in disk currently,
+but it may not be loaded into memory if it's layer
+is broken by some reason. In this case we should not
+skip downloading layers and image.
+
+Change-Id: I9ac2f1aaf20ce618ca9a88613417b757d8d4927e
+Signed-off-by: wangfengtu <wangfengtu@huawei.com>
+---
+ components/engine/distribution/config.go  |  9 +++++++++
+ components/engine/distribution/pull_v2.go |  2 +-
+ components/engine/image/store.go          | 13 +++++++++++++
+ components/engine/plugin/backend_linux.go |  8 ++++++++
+ components/engine/plugin/blobstore.go     |  3 +++
+ 5 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/distribution/config.go b/components/engine/distribution/config.go
+index 211d4f0..00a7c26 100644
+--- a/components/engine/distribution/config.go
++++ b/components/engine/distribution/config.go
+@@ -88,6 +88,7 @@ type ImagePushConfig struct {
+ type ImageConfigStore interface {
+ 	Put([]byte) (digest.Digest, error)
+ 	Get(digest.Digest) ([]byte, error)
++	GetAndCheck(digest.Digest) ([]byte, error)
+ 	RootFSFromConfig([]byte) (*image.RootFS, error)
+ 	PlatformFromConfig([]byte) (*specs.Platform, error)
+ }
+@@ -143,6 +144,14 @@ func (s *imageConfigStore) Get(d digest.Digest) ([]byte, error) {
+ 	return img.RawJSON(), nil
+ }
+ 
++func (s *imageConfigStore) GetAndCheck(d digest.Digest) ([]byte, error) {
++	img, err := s.Store.GetAndCheck(image.IDFromDigest(d))
++	if err != nil {
++		return nil, err
++	}
++	return img.RawJSON(), nil
++}
++
+ func (s *imageConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
+ 	var unmarshalledConfig image.Image
+ 	if err := json.Unmarshal(c, &unmarshalledConfig); err != nil {
+diff --git a/components/engine/distribution/pull_v2.go b/components/engine/distribution/pull_v2.go
+index 2c90e2f..9d2a303 100644
+--- a/components/engine/distribution/pull_v2.go
++++ b/components/engine/distribution/pull_v2.go
+@@ -555,7 +555,7 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
+ 	}
+ 
+ 	target := mfst.Target()
+-	if img, err := p.config.ImageStore.Get(target.Digest); err == nil {
++	if img, err := p.config.ImageStore.GetAndCheck(target.Digest); err == nil {
+ 		rootfs, err := p.config.ImageStore.RootFSFromConfig(img)
+ 		if err == nil {
+ 			if chainID := rootfs.ChainID(); chainID != "" {
+diff --git a/components/engine/image/store.go b/components/engine/image/store.go
+index b078a26..db75f06 100644
+--- a/components/engine/image/store.go
++++ b/components/engine/image/store.go
+@@ -3,6 +3,7 @@ package image // import "github.com/docker/docker/image"
+ import (
+ 	"encoding/json"
+ 	"fmt"
++	"os"
+ 	"sync"
+ 	"time"
+ 
+@@ -18,6 +19,7 @@ import (
+ type Store interface {
+ 	Create(config []byte) (ID, error)
+ 	Get(id ID) (*Image, error)
++	GetAndCheck(id ID) (*Image, error)
+ 	Delete(id ID) ([]layer.Metadata, error)
+ 	Search(partialID string) (ID, error)
+ 	SetParent(id ID, parent ID) error
+@@ -223,6 +225,17 @@ func (is *store) Get(id ID) (*Image, error) {
+ 	return img, nil
+ }
+ 
++func (is *store) GetAndCheck(id ID) (*Image, error) {
++	is.Lock()
++	if is.images[id] == nil {
++		is.Unlock()
++		return nil, os.ErrNotExist
++	}
++	is.Unlock()
++
++	return is.Get(id)
++}
++
+ func (is *store) Delete(id ID) ([]layer.Metadata, error) {
+ 	is.Lock()
+ 	defer is.Unlock()
+diff --git a/components/engine/plugin/backend_linux.go b/components/engine/plugin/backend_linux.go
+index e5d3be1..b3116b5 100644
+--- a/components/engine/plugin/backend_linux.go
++++ b/components/engine/plugin/backend_linux.go
+@@ -147,6 +147,10 @@ func (s *tempConfigStore) Get(d digest.Digest) ([]byte, error) {
+ 	return s.config, nil
+ }
+ 
++func (s *tempConfigStore) GetAndCheck(d digest.Digest) ([]byte, error) {
++	return s.Get(d)
++}
++
+ func (s *tempConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
+ 	return configToRootFS(c)
+ }
+@@ -544,6 +548,10 @@ func (s *pluginConfigStore) Get(d digest.Digest) ([]byte, error) {
+ 	return ioutil.ReadAll(rwc)
+ }
+ 
++func (s *pluginConfigStore) GetAndCheck(d digest.Digest) ([]byte, error) {
++	return s.Get(d)
++}
++
+ func (s *pluginConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
+ 	return configToRootFS(c)
+ }
+diff --git a/components/engine/plugin/blobstore.go b/components/engine/plugin/blobstore.go
+index a24e7bd..ac6b967 100644
+--- a/components/engine/plugin/blobstore.go
++++ b/components/engine/plugin/blobstore.go
+@@ -181,6 +181,9 @@ func (dm *downloadManager) Put(dt []byte) (digest.Digest, error) {
+ func (dm *downloadManager) Get(d digest.Digest) ([]byte, error) {
+ 	return nil, fmt.Errorf("digest not found")
+ }
++func (dm *downloadManager) GetAndCheck(d digest.Digest) ([]byte, error) {
++	return dm.Get(d)
++}
+ func (dm *downloadManager) RootFSFromConfig(c []byte) (*image.RootFS, error) {
+ 	return configToRootFS(c)
+ }
+-- 
+2.7.4
+

@@ -1,0 +1,367 @@
+From d6725e951ee958b61af8c32d5c71d79d2e708432 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:16:48 +0800
+Subject: [PATCH 014/111] hookspec:  Add default hooks for all
+ containers
+
+reason: Add new flag `--hook-spec` for daemon, so that we can specify one json
+file containing hooks definition for all containers.
+
+You can also add this into `/etc/docker/daemon.json` daemon config file:
+
+```
+{
+    "hook-spec": "/tmp/hookspec.json"
+}
+```
+
+Change-Id: I9263d5a912daeb04621e7d2ec991204333c2b931
+Signed-off-by: Zhang Wei <zhangwei555@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/cli/cli/command/system/info.go     |  4 +
+ components/cli/contrib/completion/bash/docker |  1 +
+ .../cli/docs/reference/commandline/dockerd.md |  1 +
+ components/cli/man/dockerd.8.md               | 25 ++++-
+ .../docker/docker/api/types/types.go          |  1 +
+ components/engine/api/types/types.go          |  1 +
+ components/engine/cmd/dockerd/config.go       |  1 +
+ components/engine/daemon/config/config.go     |  1 +
+ components/engine/daemon/container.go         | 94 +++++++++++++++++--
+ components/engine/daemon/daemon.go            |  7 ++
+ components/engine/daemon/info.go              |  1 +
+ 11 files changed, 126 insertions(+), 11 deletions(-)
+
+diff --git a/components/cli/cli/command/system/info.go b/components/cli/cli/command/system/info.go
+index 92fc2cd3e7..17ccc14aec 100644
+--- a/components/cli/cli/command/system/info.go
++++ b/components/cli/cli/command/system/info.go
+@@ -204,6 +204,10 @@ func prettyPrintInfo(dockerCli command.Cli, info types.Info) error {
+ 	}
+ 
+ 	fmt.Fprintln(dockerCli.Out(), "Live Restore Enabled:", info.LiveRestoreEnabled)
++	if info.HookSpec != "" {
++		fmt.Fprintf(dockerCli.Out(), "Default hook spec file: %s", info.HookSpec)
++	}
++
+ 	if info.ProductLicense != "" {
+ 		fmt.Fprintln(dockerCli.Out(), "Product License:", info.ProductLicense)
+ 	}
+diff --git a/components/cli/contrib/completion/bash/docker b/components/cli/contrib/completion/bash/docker
+index 9012988075..64f7fe08dd 100644
+--- a/components/cli/contrib/completion/bash/docker
++++ b/components/cli/contrib/completion/bash/docker
+@@ -2274,6 +2274,7 @@ _docker_daemon() {
+ 		--fixed-cidr
+ 		--fixed-cidr-v6
+ 		--group -G
++		--hook-spec
+ 		--init-path
+ 		--insecure-registry
+ 		--ip
+diff --git a/components/cli/docs/reference/commandline/dockerd.md b/components/cli/docs/reference/commandline/dockerd.md
+index 4b50b78b19..bbf6908af3 100644
+--- a/components/cli/docs/reference/commandline/dockerd.md
++++ b/components/cli/docs/reference/commandline/dockerd.md
+@@ -53,6 +53,7 @@ Options:
+       --fixed-cidr-v6 string                  IPv6 subnet for fixed IPs
+   -G, --group string                          Group for the unix socket (default "docker")
+       --help                                  Print usage
++      --hook-spec                             Default hook spec file applied to all containers
+   -H, --host list                             Daemon socket(s) to connect to (default [])
+       --icc                                   Enable inter-container communication (default true)
+       --init                                  Run an init in the container to forward signals and reap processes
+diff --git a/components/cli/man/dockerd.8.md b/components/cli/man/dockerd.8.md
+index 0224035970..d075080e78 100644
+--- a/components/cli/man/dockerd.8.md
++++ b/components/cli/man/dockerd.8.md
+@@ -38,6 +38,7 @@ dockerd - Enable daemon mode
+ [**-G**|**--group**[=*docker*]]
+ [**-H**|**--host**[=*[]*]]
+ [**--help**]
++[**--hook-spec**[=*HOOKFILE*]]
+ [**--icc**[=*true*]]
+ [**--init**[=*false*]]
+ [**--init-path**[=*""*]]
+@@ -239,7 +240,29 @@ unix://[/path/to/socket] to use.
+ 
+ **--help**
+   Print usage statement
+-
++  
++**--hook-spec**=""
++   Add default hooks for all containers.
++
++   With this flag, user can specify a file containing custom hook, an example hook file can be like this:
++
++ ```
++ {
++         "prestart": [
++             {
++                 "path": "/var/lib/docker/hooks/myhook",
++                 "args": ["myhook", "prestart"],
++                 "env": ["container=runc"]
++             }
++         ]
++ }
++ ```
++
++   Then all the containers will run the default hook `myhook` when start.
++
++   currently it supports three hooks: "prestart", "poststart", "poststop".
++   See OCI spec definition for more information about "hooks".
++   
+ **--icc**=*true*|*false*
+   Allow unrestricted inter\-container and Docker daemon host communication. If
+   disabled, containers can still be linked together using the **--link** option
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/types.go b/components/cli/vendor/github.com/docker/docker/api/types/types.go
+index a8fae3ba32..2fb6c5478b 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/types.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/types.go
+@@ -192,6 +192,7 @@ type Info struct {
+ 	ServerVersion      string
+ 	ClusterStore       string
+ 	ClusterAdvertise   string
++	HookSpec           string
+ 	Runtimes           map[string]Runtime
+ 	DefaultRuntime     string
+ 	Swarm              swarm.Info
+diff --git a/components/engine/api/types/types.go b/components/engine/api/types/types.go
+index 959e9eb447..820d513cbb 100644
+--- a/components/engine/api/types/types.go
++++ b/components/engine/api/types/types.go
+@@ -194,6 +194,7 @@ type Info struct {
+ 	ServerVersion      string
+ 	ClusterStore       string
+ 	ClusterAdvertise   string
++	HookSpec           string
+ 	Runtimes           map[string]Runtime
+ 	DefaultRuntime     string
+ 	Swarm              swarm.Info
+diff --git a/components/engine/cmd/dockerd/config.go b/components/engine/cmd/dockerd/config.go
+index 2c8ed8edb4..6f62b97da8 100644
+--- a/components/engine/cmd/dockerd/config.go
++++ b/components/engine/cmd/dockerd/config.go
+@@ -56,6 +56,7 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
+ 	flags.StringVar(&conf.ClusterAdvertise, "cluster-advertise", "", "Address or interface name to advertise")
+ 	flags.StringVar(&conf.ClusterStore, "cluster-store", "", "URL of the distributed storage backend")
+ 	flags.Var(opts.NewNamedMapOpts("cluster-store-opts", conf.ClusterOpts, nil), "cluster-store-opt", "Set cluster store options")
++	flags.StringVar(&conf.HookSpec, "hook-spec", "", "Default hook spec file applied to all containers")
+ 	flags.StringVar(&conf.CorsHeaders, "api-cors-header", "", "Set CORS headers in the Engine API")
+ 	flags.IntVar(&maxConcurrentDownloads, "max-concurrent-downloads", config.DefaultMaxConcurrentDownloads, "Set the max concurrent downloads for each pull")
+ 	flags.IntVar(&maxConcurrentUploads, "max-concurrent-uploads", config.DefaultMaxConcurrentUploads, "Set the max concurrent uploads for each push")
+diff --git a/components/engine/daemon/config/config.go b/components/engine/daemon/config/config.go
+index 8b2c844a57..2141ce8c54 100644
+--- a/components/engine/daemon/config/config.go
++++ b/components/engine/daemon/config/config.go
+@@ -124,6 +124,7 @@ type CommonConfig struct {
+ 	ExecOptions           []string                  `json:"exec-opts,omitempty"`
+ 	GraphDriver           string                    `json:"storage-driver,omitempty"`
+ 	GraphOptions          []string                  `json:"storage-opts,omitempty"`
++	HookSpec              string                    `json:"hook-spec,omitempty"`
+ 	Labels                []string                  `json:"labels,omitempty"`
+ 	Mtu                   int                       `json:"mtu,omitempty"`
+ 	NetworkDiagnosticPort int                       `json:"network-diagnostic-port,omitempty"`
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index 0864443513..8f9f6baf25 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -13,16 +13,19 @@ import (
+ 	containertypes "github.com/docker/docker/api/types/container"
+ 	"github.com/docker/docker/api/types/strslice"
+ 	"github.com/docker/docker/container"
++	"github.com/docker/docker/daemon/config"
+ 	"github.com/docker/docker/daemon/network"
+ 	"github.com/docker/docker/errdefs"
+ 	"github.com/docker/docker/image"
+ 	"github.com/docker/docker/opts"
++	"github.com/docker/docker/pkg/idtools"
+ 	"github.com/docker/docker/pkg/signal"
+ 	"github.com/docker/docker/pkg/system"
+ 	"github.com/docker/docker/pkg/truncindex"
+ 	"github.com/docker/docker/runconfig"
+ 	volumemounts "github.com/docker/docker/volume/mounts"
+ 	"github.com/docker/go-connections/nat"
++	"github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/opencontainers/selinux/go-selinux/label"
+ 	"github.com/pkg/errors"
+ )
+@@ -226,7 +229,7 @@ func (daemon *Daemon) setHostConfig(container *container.Container, hostConfig *
+ 	}
+ 
+ 	// register hooks to container
+-	if err := daemon.registerHooks(container, hostConfig); err != nil {
++	if err := daemon.registerHooks(container, hostConfig.HookSpec); err != nil {
+ 		return err
+ 	}
+ 
+@@ -235,41 +238,112 @@ func (daemon *Daemon) setHostConfig(container *container.Container, hostConfig *
+ 	return container.CheckpointTo(daemon.containersReplica)
+ }
+ 
++func (daemon *Daemon) sanitizeHookSpec(spec string) (string, error) {
++	if spec != "" {
++		spec = filepath.Clean(spec)
++		if !filepath.IsAbs(spec) {
++			return "", fmt.Errorf("hook spec file must be an absolute path")
++		}
++		fi, err := os.Stat(spec)
++		if err != nil {
++			return "", fmt.Errorf("stat hook spec file failed: %v", err)
++		}
++		if !fi.Mode().IsRegular() {
++			return "", fmt.Errorf("hook spec file must be a regular text file")
++		}
++	}
++	return spec, nil
++}
++
++func (daemon *Daemon) initHooks(config *config.Config, rootIdentity idtools.Identity) error {
++	// create hook store dir
++	var err error
++	hookDir := filepath.Join(config.Root, "hooks")
++	if err = idtools.MkdirAllAndChown(hookDir, 0700, rootIdentity); err != nil && !os.IsExist(err) {
++		return err
++	}
++	daemon.hookStore = hookDir
++
++	if config.HookSpec, err = daemon.sanitizeHookSpec(config.HookSpec); err != nil {
++		return err
++	}
++
++	// setup default hooks
++	if err := daemon.registerDaemonHooks(config.HookSpec); err != nil {
++		return err
++	}
++
++	return nil
++}
+ 
+-func (daemon *Daemon) registerHooks(container *container.Container, hostConfig *containertypes.HostConfig) error {
+-	if hostConfig.HookSpec == "" {
++func (daemon *Daemon) registerDaemonHooks(hookspec string) error {
++	if hookspec == "" {
+ 		return nil
+ 	}
++
+ 	// the hook spec has already been sanitized, so no need for validation again
+-	f, err := os.Open(hostConfig.HookSpec)
++	f, err := os.Open(hookspec)
+ 	if err != nil {
+ 		return fmt.Errorf("open hook spec file error: %v", err)
+ 	}
+ 	defer f.Close()
+ 
+-	if err = json.NewDecoder(f).Decode(&container.Hooks); err != nil {
++	if err = json.NewDecoder(f).Decode(&daemon.Hooks); err != nil {
+ 		return fmt.Errorf("malformed hook spec, is your spec file in json format? error: %v", err)
+ 	}
+ 
+ 	// hook path must be absolute and must be subdir of XXX
+-	if err = daemon.validateHook(container); err != nil {
++	if err = daemon.validateHook(&daemon.Hooks); err != nil {
+ 		return err
+ 	}
++
++	return nil
++}
++
++func (daemon *Daemon) registerHooks(container *container.Container, hookspec string) error {
++	container.Hooks.Prestart = append(container.Hooks.Prestart, daemon.Hooks.Prestart...)
++	container.Hooks.Poststart = append(container.Hooks.Poststart, daemon.Hooks.Poststart...)
++	container.Hooks.Poststop = append(container.Hooks.Poststop, daemon.Hooks.Poststop...)
++	if hookspec == "" {
++		return nil
++	}
++
++	// the hook spec has already been sanitized, so no need for validation again
++	f, err := os.Open(hookspec)
++	if err != nil {
++		return fmt.Errorf("open hook spec file error: %v", err)
++	}
++	defer f.Close()
++
++	var hooks specs.Hooks
++	if err = json.NewDecoder(f).Decode(&hooks); err != nil {
++		return fmt.Errorf("malformed hook spec, is your spec file in json format? error: %v", err)
++	}
++
++	container.Hooks.Prestart = append(container.Hooks.Prestart, hooks.Prestart...)
++	container.Hooks.Poststart = append(container.Hooks.Poststart, hooks.Poststart...)
++	container.Hooks.Poststop = append(container.Hooks.Poststop, hooks.Poststop...)
++
++	// hook path must be absolute and must be subdir of XXX
++	if err = daemon.validateHook(&container.Hooks); err != nil {
++		return err
++	}
++
+ 	return nil
+ }
+ 
+-func (daemon *Daemon) validateHook(container *container.Container) error {
+-	for _, v := range container.Hooks.Prestart {
++func (daemon *Daemon) validateHook(hooks *specs.Hooks) error {
++	for _, v := range hooks.Prestart {
+ 		if err := daemon.validateHookPath(v.Path); err != nil {
+ 			return err
+ 		}
+ 	}
+-	for _, v := range container.Hooks.Poststart {
++	for _, v := range hooks.Poststart {
+ 		if err := daemon.validateHookPath(v.Path); err != nil {
+ 			return err
+ 		}
+ 	}
+-	for _, v := range container.Hooks.Poststop {
++	for _, v := range hooks.Poststop {
+ 		if err := daemon.validateHookPath(v.Path); err != nil {
+ 			return err
+ 		}
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index d1f3131c4f..f7635f27cc 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -67,6 +67,7 @@ import (
+ 	"github.com/docker/libnetwork"
+ 	"github.com/docker/libnetwork/cluster"
+ 	nwconfig "github.com/docker/libnetwork/config"
++	"github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/pkg/errors"
+ )
+ 
+@@ -109,6 +110,7 @@ type Daemon struct {
+ 	containerdCli         *containerd.Client
+ 	containerd            libcontainerd.Client
+ 	defaultIsolation      containertypes.Isolation // Default isolation mode on Windows
++	Hooks                 specs.Hooks
+ 	clusterProvider       cluster.Provider
+ 	cluster               Cluster
+ 	genericResources      []swarm.GenericResource
+@@ -997,6 +999,11 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 		return nil, errors.New("Devices cgroup isn't mounted")
+ 	}
+ 
++	// setup hooks environment
++	if err := d.initHooks(config, rootIDs); err != nil {
++		return nil, fmt.Errorf("Failed to register default hooks: %v", err)
++	}
++
+ 	d.ID = trustKey.PublicKey().KeyID()
+ 	d.repository = daemonRepo
+ 	d.containers = container.NewMemoryStore()
+diff --git a/components/engine/daemon/info.go b/components/engine/daemon/info.go
+index 262719d9d1..523a396643 100644
+--- a/components/engine/daemon/info.go
++++ b/components/engine/daemon/info.go
+@@ -67,6 +67,7 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
+ 		HTTPSProxy:         maskCredentials(sockets.GetProxyEnv("https_proxy")),
+ 		NoProxy:            sockets.GetProxyEnv("no_proxy"),
+ 		LiveRestoreEnabled: daemon.configStore.LiveRestoreEnabled,
++		HookSpec:           daemon.configStore.HookSpec,
+ 		Isolation:          daemon.defaultIsolation,
+ 	}
+ 
+-- 
+2.17.1
+

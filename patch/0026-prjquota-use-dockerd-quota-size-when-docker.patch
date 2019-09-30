@@ -1,0 +1,37 @@
+From 0ff4db1fc19ecb6f9dedfaa8d0645a638bb7ab20 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 17:53:59 +0800
+Subject: [PATCH 026/111] prjquota:  use dockerd quota size when
+ docker not specifies
+
+reason: if docker run not specifies quota size but dockerd has default
+size, we should use the default value in dockerd.
+EulerOS docker 1.11.2 and 17.06 has the same logic. But now, if docker
+create/run not give --storage-opt, it will panic during parseStorageOpt, so
+updating the handling logic.
+
+Change-Id: I52141c7f1caf5a2a4cbd9c00fbe709f09f7a412b
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ .../engine/daemon/graphdriver/overlay2/overlay.go     | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 7290616bae..722d65b11a 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -406,6 +406,11 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 				return err
+ 			}
+ 		}
++	} else if d.options.quota.Size > 0 {
++		// docker run not specified quota size, but dockerd does, so limits it also
++		if err := d.quotaCtl.SetQuota(dir, d.options.quota); err != nil {
++			return err
++		}
+ 	}
+ 
+ 	if err := idtools.MkdirAndChown(path.Join(dir, "diff"), 0755, root); err != nil {
+-- 
+2.17.1
+

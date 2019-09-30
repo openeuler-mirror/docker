@@ -1,0 +1,31 @@
+From 9e05ad46f060ab47559cd1566a95ec579fbc08ac Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:18:35 +0800
+Subject: [PATCH 019/111] dfx:  print container name and id when create
+ done
+
+reason:print container name and id when create done
+
+Change-Id: I62932133c2a28e24adb54a40d16e2792a0772185
+Signed-off-by: dengguangxing <dengguangxing@huawei.com>
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/create.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/engine/daemon/create.go b/components/engine/daemon/create.go
+index 1afb1bebea..565e9dc022 100644
+--- a/components/engine/daemon/create.go
++++ b/components/engine/daemon/create.go
+@@ -74,6 +74,7 @@ func (daemon *Daemon) containerCreate(params types.ContainerCreateConfig, manage
+ 		return containertypes.ContainerCreateCreatedBody{Warnings: warnings}, err
+ 	}
+ 	containerActions.WithValues("create").UpdateSince(start)
++	logrus.Infof("Container create done(Name: %s ID: %s)", container.Name, container.ID)
+ 
+ 	return containertypes.ContainerCreateCreatedBody{ID: container.ID, Warnings: warnings}, nil
+ }
+-- 
+2.17.1
+

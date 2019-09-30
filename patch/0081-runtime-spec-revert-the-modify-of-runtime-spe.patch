@@ -1,0 +1,51 @@
+From c1b7332e8f531e53062c740a16f953cd37661d30 Mon Sep 17 00:00:00 2001
+From: leizhongkai <leizhongkai@huawei.com>
+Date: Thu, 24 Jan 2019 20:24:08 +0800
+Subject: [PATCH 081/111] runtime-spec: revert the modify of runtime
+ spec
+
+reason:revert the modify of runtime spec,make the compatibility in runc
+
+Change-Id: Ia294a169ff15c860c7db3b7a9ab14cecb605cfef
+Signed-off-by: leizhongkai <leizhongkai@huawei.com>
+---
+ .../runtime-spec/specs-go/config.go            | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go b/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
+index aab7b8a098..46049b3bfa 100644
+--- a/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
++++ b/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
+@@ -256,20 +256,20 @@ type LinuxThrottleDevice struct {
+ 
+ // LinuxBlockIO for Linux cgroup 'blkio' resource management
+ type LinuxBlockIO struct {
+-	// Specifies per cgroup weight, range is from 10 to 1000
+-	Weight *uint16 `json:"blkioWeight,omitempty"`
+-	// Specifies tasks' weight in the given cgroup while competing with the cgroup's child cgroups, range is from 10 to 1000, CFQ scheduler only
+-	LeafWeight *uint16 `json:"blkioLeafWeight,omitempty"`
++	// Specifies per cgroup weight
++	Weight *uint16 `json:"weight,omitempty"`
++	// Specifies tasks' weight in the given cgroup while competing with the cgroup's child cgroups, CFQ scheduler only
++	LeafWeight *uint16 `json:"leafWeight,omitempty"`
+ 	// Weight per cgroup per device, can override BlkioWeight
+-	WeightDevice []LinuxWeightDevice `json:"blkioWeightDevice,omitempty"`
++	WeightDevice []LinuxWeightDevice `json:"weightDevice,omitempty"`
+ 	// IO read rate limit per cgroup per device, bytes per second
+-	ThrottleReadBpsDevice []LinuxThrottleDevice `json:"blkioThrottleReadBpsDevice,omitempty"`
++	ThrottleReadBpsDevice []LinuxThrottleDevice `json:"throttleReadBpsDevice,omitempty"`
+ 	// IO write rate limit per cgroup per device, bytes per second
+-	ThrottleWriteBpsDevice []LinuxThrottleDevice `json:"blkioThrottleWriteBpsDevice,omitempty"`
++	ThrottleWriteBpsDevice []LinuxThrottleDevice `json:"throttleWriteBpsDevice,omitempty"`
+ 	// IO read rate limit per cgroup per device, IO per second
+-	ThrottleReadIOPSDevice []LinuxThrottleDevice `json:"blkioThrottleReadIOPSDevice,omitempty"`
++	ThrottleReadIOPSDevice []LinuxThrottleDevice `json:"throttleReadIOPSDevice,omitempty"`
+ 	// IO write rate limit per cgroup per device, IO per second
+-	ThrottleWriteIOPSDevice []LinuxThrottleDevice `json:"blkioThrottleWriteIOPSDevice,omitempty"`
++	ThrottleWriteIOPSDevice []LinuxThrottleDevice `json:"throttleWriteIOPSDevice,omitempty"`
+ }
+ 
+ // LinuxMemory for Linux cgroup 'memory' resource management
+-- 
+2.17.1
+

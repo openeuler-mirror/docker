@@ -1,0 +1,35 @@
+From ee64a0b5fd645d1765b0c50cbaab76c17bab9b28 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 18 Jan 2019 14:46:21 +0800
+Subject: [PATCH 058/111] cleanup:  cleanup incompleted device while
+ docker startup
+
+cleanup incompleted device while docker startup
+
+Change-Id: I9a9a96c655b61ac132fa7ed101dc9953c1bb613d
+Signed-off-by: Wentao Zhang <zhangwentao234@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/daemon/graphdriver/devmapper/deviceset.go | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index b3e142e2ba..f4dc589c6e 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -1753,6 +1753,12 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
+ 			}
+ 			logrus.Debugf("devmapper: remove broken device: %s", name)
+ 		}
++		if _, err := os.Stat(filepath.Join("/dev/mapper/", name)); err != nil {
++			if err := devicemapper.RemoveDevice(name); err != nil {
++				logrus.Warnf("devmapper: remove incompelete device(%s): %v", name, err)
++			}
++			logrus.Debugf("devmapper: remove incompelete device: %s", name)
++		}
+ 	}
+ 
+ 	// Check for the existence of the thin-pool device
+-- 
+2.17.1
+

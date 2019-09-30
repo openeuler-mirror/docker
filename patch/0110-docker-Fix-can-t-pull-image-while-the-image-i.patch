@@ -1,0 +1,139 @@
+From d3cd69071d70e749d0561a6ebedf089c9d973d76 Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Sat, 23 Feb 2019 14:42:44 +0800
+Subject: [PATCH 110/111] docker:  Fix can't pull image while the image
+ is not in `docker images`
+
+reason:When the layers of image has been damaged, daemon restart fail to load image,it cause
+docker pull can't normally download the image.
+
+delete image reference from repositories.json if no image configfound
+  cherry-pick from docker 1.11.2: ca25e85
+
+Change-Id: Iab6081b34d76bc0bf49414d041115db39c1a256e
+Signed-off-by: PengFei Yang yangpengfei4@huawei.com
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ components/engine/daemon/daemon.go            | 27 +++++++++++--------
+ components/engine/daemon/images/image_pull.go |  2 ++
+ components/engine/distribution/config.go      |  2 ++
+ components/engine/distribution/pull_v2.go     | 20 +++++++++++---
+ 4 files changed, 36 insertions(+), 15 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 7716964304..84a28df78a 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -1029,9 +1029,10 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 	}
+ 
+ 	// delete reference of image not nornamlly loaded to imageStore
++	var isExist bool
+ 	for _, imageID := range rs.List() {
+ 		if img, err := imageStore.Get(image.ID(imageID)); err == nil {
+-			isExist := false
++			isExist = false
+ 			if chainID := img.RootFS.ChainID(); chainID != "" {
+ 				l, err := layerStores[runtime.GOOS].Get(chainID)
+ 				if err == nil {
+@@ -1041,19 +1042,23 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 			} else {
+ 				isExist = true
+ 			}
+-			// If the image not exist locally, delete its reference
+-			if !isExist {
+-				for _, ref := range rs.References(imageID) {
+-					isDelete, err := rs.Delete(ref)
+-					if isDelete {
+-						logrus.Warnf("Delete reference %s for image id %s from reference store", ref.String(), imageID)
+-					}
+-					if err != nil {
+-						logrus.Warnf("Faild to delete reference %s for image id %s: %v", ref.String(), imageID, err)
+-					}
++		} else {
++			logrus.Warnf("Failed to get image configration for image id %s, error: %s", imageID, err)
++		}
++
++		// If the image not exist locally, delete its reference
++		if !isExist {
++			for _, ref := range rs.References(imageID) {
++				isDelete, err := rs.Delete(ref)
++				if isDelete {
++					logrus.Warnf("Delete reference %s for image id %s from reference store", ref.String(), imageID)
++				}
++				if err != nil {
++					logrus.Warnf("Faild to delete reference %s for image id %s: %v", ref.String(), imageID, err)
+ 				}
+ 			}
+ 		}
++
+ 	}
+ 
+ 	// No content-addressability migration on Windows as it never supported pre-CA
+diff --git a/components/engine/daemon/images/image_pull.go b/components/engine/daemon/images/image_pull.go
+index 3e6b433037..1c57c80c3c 100644
+--- a/components/engine/daemon/images/image_pull.go
++++ b/components/engine/daemon/images/image_pull.go
+@@ -3,6 +3,7 @@ package images // import "github.com/docker/docker/daemon/images"
+ import (
+ 	"context"
+ 	"io"
++	"runtime"
+ 	"strings"
+ 	"time"
+ 
+@@ -73,6 +74,7 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
+ 			RegistryService:  i.registryService,
+ 			ImageEventLogger: i.LogImageEvent,
+ 			MetadataStore:    i.distributionMetadataStore,
++			LayerStore:       i.layerStores[runtime.GOOS],
+ 			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore),
+ 			ReferenceStore:   i.referenceStore,
+ 		},
+diff --git a/components/engine/distribution/config.go b/components/engine/distribution/config.go
+index 438051c296..211d4f049d 100644
+--- a/components/engine/distribution/config.go
++++ b/components/engine/distribution/config.go
+@@ -42,6 +42,8 @@ type Config struct {
+ 	// MetadataStore is the storage backend for distribution-specific
+ 	// metadata.
+ 	MetadataStore metadata.Store
++	// LayerStore manages layers.
++	LayerStore layer.Store
+ 	// ImageStore manages images.
+ 	ImageStore ImageConfigStore
+ 	// ReferenceStore manages tags. This value is optional, when excluded
+diff --git a/components/engine/distribution/pull_v2.go b/components/engine/distribution/pull_v2.go
+index 8f05cfa0b2..2c90e2f93f 100644
+--- a/components/engine/distribution/pull_v2.go
++++ b/components/engine/distribution/pull_v2.go
+@@ -555,10 +555,22 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
+ 	}
+ 
+ 	target := mfst.Target()
+-	if _, err := p.config.ImageStore.Get(target.Digest); err == nil {
+-		// If the image already exists locally, no need to pull
+-		// anything.
+-		return target.Digest, manifestDigest, nil
++	if img, err := p.config.ImageStore.Get(target.Digest); err == nil {
++		rootfs, err := p.config.ImageStore.RootFSFromConfig(img)
++		if err == nil {
++			if chainID := rootfs.ChainID(); chainID != "" {
++				l, err := p.config.LayerStore.Get(chainID)
++				if err == nil {
++					layer.ReleaseAndLog(p.config.LayerStore, l)
++					// If the image already exists locally, no need to pull anything.
++					return target.Digest, manifestDigest, nil
++				}
++			} else {
++				return target.Digest, manifestDigest, nil
++			}
++		} else {
++			return target.Digest, manifestDigest, nil
++		}
+ 	}
+ 
+ 	var descriptors []xfer.DownloadDescriptor
+-- 
+2.17.1
+

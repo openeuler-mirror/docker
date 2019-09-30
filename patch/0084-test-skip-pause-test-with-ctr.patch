@@ -1,0 +1,47 @@
+From c6edc1d912211c8b35df6c28033fb577a899573e Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 24 Jan 2019 16:28:45 +0800
+Subject: [PATCH 084/111] test:  skip pause test with ctr
+
+reason: pause managed by docker only
+
+Change-Id: I8aae73e4ab1e0bf9ed639495aa112469ac3630d9
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/integration-cli/docker_cli_daemon_test.go | 3 ++-
+ components/engine/integration-cli/requirements_test.go      | 5 +++++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/integration-cli/docker_cli_daemon_test.go b/components/engine/integration-cli/docker_cli_daemon_test.go
+index 02c42c22e2..467edb04b4 100644
+--- a/components/engine/integration-cli/docker_cli_daemon_test.go
++++ b/components/engine/integration-cli/docker_cli_daemon_test.go
+@@ -2049,7 +2049,8 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterDaemonCrash(c *check.C) {
+ 
+ // TestDaemonRestartWithUnpausedRunningContainer requires live restore of running containers.
+ func (s *DockerDaemonSuite) TestDaemonRestartWithUnpausedRunningContainer(t *check.C) {
+-	testRequires(t, DaemonIsLinux)
++	testRequires(t, DaemonIsLinux, SupportCtr)
++
+ 	s.d.StartWithBusybox(t, "--live-restore")
+ 
+ 	cid, err := s.d.Cmd("run", "-d", "--name", "test", "busybox", "top")
+diff --git a/components/engine/integration-cli/requirements_test.go b/components/engine/integration-cli/requirements_test.go
+index 28be59cd2c..4647ce8ccc 100644
+--- a/components/engine/integration-cli/requirements_test.go
++++ b/components/engine/integration-cli/requirements_test.go
+@@ -38,6 +38,11 @@ func DaemonIsWindowsAtLeastBuild(buildNumber int) func() bool {
+ 	}
+ }
+ 
++func SupportCtr() bool {
++	// not support ctr now.
++	return false
++}
++
+ func DaemonIsLinux() bool {
+ 	return testEnv.OSType == "linux"
+ }
+-- 
+2.17.1
+

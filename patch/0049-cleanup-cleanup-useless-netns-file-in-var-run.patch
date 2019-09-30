@@ -1,0 +1,81 @@
+From 652be7c8c259c25adaed10f6f121a7d18283daa0 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Tue, 8 Jan 2019 19:08:25 +0800
+Subject: [PATCH 049/111] cleanup:  cleanup useless netns file in
+ /var/run/docker/netns
+
+reason:killing daemon would left useless netns file.
+try to clean them up during daemon restore according to
+activesandboxes
+
+cherrt-pick from docker 1.11.2:
+- e657d09 cleanup useless netns file in /var/run/docker/netns
+
+Change-Id: I4bfff028a1ad2df9a42456b9f181db87d63c7cd7
+Signed-off-by: dengguangxing <dengguangxing@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ .../docker/libnetwork/controller.go           |  2 ++
+ .../docker/libnetwork/osl/namespace_linux.go  | 33 +++++++++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/controller.go b/components/engine/vendor/github.com/docker/libnetwork/controller.go
+index 2896011dbf..95013d31d3 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/controller.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/controller.go
+@@ -247,6 +247,8 @@ func New(cfgOptions ...config.Option) (NetworkController, error) {
+ 	c.sandboxCleanup(c.cfg.ActiveSandboxes)
+ 	c.cleanupLocalEndpoints()
+ 	c.networkCleanup()
++	osl.NetnsFileCleanup(c.cfg.ActiveSandboxes)
++
+ 
+ 	if err := c.startExternalKeyListener(); err != nil {
+ 		return nil, err
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go b/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go
+index bfc5d31a53..f97b286bcd 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go
+@@ -586,6 +586,39 @@ func (n *networkNamespace) Restore(ifsopt map[string][]IfaceOption, routes []*ty
+ 	return nil
+ }
+ 
++func NetnsFileCleanup(activeSandboxes map[string]interface{}) {
++	maxLen := 12
++	dir, err := ioutil.ReadDir(prefix)
++	if err != nil {
++		logrus.Warnf("failed to open %s for netns cleanup: %s", prefix, err)
++		return
++	}
++
++	activeSandboxesMap := make(map[string]string)
++	// shorten active sandboxes id to 12 char
++	for ac, _ := range activeSandboxes {
++		shortid := ac[:maxLen]
++		activeSandboxesMap[shortid] = shortid
++	}
++
++	for _, v := range dir {
++		id := v.Name()
++		// skip if id length is not 12, like default
++		if len(id) != maxLen {
++			continue
++		}
++
++		if _, ok := activeSandboxesMap[id]; !ok {
++			path := filepath.Join(prefix, id)
++			// cleanup netns file if not active
++			syscall.Unmount(path, syscall.MNT_DETACH)
++			if err := os.Remove(path); err != nil {
++				logrus.Warnf("Failed to cleanup netns file %s: %s", path, err)
++			}
++		}
++	}
++}
++
+ // Checks whether IPv6 needs to be enabled/disabled on the loopback interface
+ func (n *networkNamespace) checkLoV6() {
+ 	var (
+-- 
+2.17.1
+

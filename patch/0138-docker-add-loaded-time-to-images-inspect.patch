@@ -1,0 +1,149 @@
+From 90345160060de8422eeb8d82b5525b59e31d6a68 Mon Sep 17 00:00:00 2001
+From: yangfeiyu <yangfeiyu2@huawei.com>
+Date: Mon, 8 Jul 2019 14:45:23 +0800
+Subject: [PATCH] docker:  add loaded time to images inspect
+
+Signed-off-by: yangfeiyu2 <yangfeiyu2@huawei.com>
+
+---
+ components/engine/api/types/types.go                        |  1 +
+ components/engine/daemon/images/image.go                    | 13 +++++++++++++
+ components/engine/daemon/images/image_inspect.go            |  1 +
+ components/engine/image/fs.go                               |  9 +++++++++
+ components/engine/image/store.go                            |  5 +++++
+ .../engine/integration-cli/docker_cli_save_load_test.go     |  8 ++++++--
+ 6 files changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/api/types/types.go b/components/engine/api/types/types.go
+index 55955f2..81586e5 100644
+--- a/components/engine/api/types/types.go
++++ b/components/engine/api/types/types.go
+@@ -33,6 +33,7 @@ type ImageInspect struct {
+ 	Parent          string
+ 	Comment         string
+ 	Created         string
++	Loaded          string
+ 	Container       string
+ 	ContainerConfig *container.Config
+ 	DockerVersion   string
+diff --git a/components/engine/daemon/images/image.go b/components/engine/daemon/images/image.go
+index 79cc07c..1536076 100644
+--- a/components/engine/daemon/images/image.go
++++ b/components/engine/daemon/images/image.go
+@@ -2,6 +2,8 @@ package images // import "github.com/docker/docker/daemon/images"
+ 
+ import (
+ 	"fmt"
++	"os"
++	"time"
+ 
+ 	"github.com/docker/distribution/reference"
+ 	"github.com/docker/docker/errdefs"
+@@ -24,6 +26,17 @@ func (e ErrImageDoesNotExist) Error() string {
+ // NotFound implements the NotFound interface
+ func (e ErrImageDoesNotExist) NotFound() {}
+ 
++func (i *ImageService) GetImageLoadTime(id image.ID) string {
++	contentFile := i.imageStore.GetContentFile(id)
++
++	fi, err := os.Stat(contentFile)
++	if err != nil {
++		return ""
++	}
++
++	return fi.ModTime().Format(time.RFC3339Nano)
++}
++
+ // GetImage returns an image corresponding to the image referred to by refOrID.
+ func (i *ImageService) GetImage(refOrID string) (*image.Image, error) {
+ 	ref, err := reference.ParseAnyReference(refOrID)
+diff --git a/components/engine/daemon/images/image_inspect.go b/components/engine/daemon/images/image_inspect.go
+index 16c4c9b..406cc8d 100644
+--- a/components/engine/daemon/images/image_inspect.go
++++ b/components/engine/daemon/images/image_inspect.go
+@@ -70,6 +70,7 @@ func (i *ImageService) LookupImage(name string) (*types.ImageInspect, error) {
+ 		Parent:          img.Parent.String(),
+ 		Comment:         comment,
+ 		Created:         img.Created.Format(time.RFC3339Nano),
++		Loaded:          i.GetImageLoadTime(img.ID()),
+ 		Container:       img.Container,
+ 		ContainerConfig: &img.ContainerConfig,
+ 		DockerVersion:   img.DockerVersion,
+diff --git a/components/engine/image/fs.go b/components/engine/image/fs.go
+index 7080c8c..06999ea 100644
+--- a/components/engine/image/fs.go
++++ b/components/engine/image/fs.go
+@@ -19,6 +19,7 @@ type DigestWalkFunc func(id digest.Digest) error
+ // StoreBackend provides interface for image.Store persistence
+ type StoreBackend interface {
+ 	Walk(f DigestWalkFunc) error
++	GetContentFile(id digest.Digest) string
+ 	Get(id digest.Digest) ([]byte, error)
+ 	Set(data []byte) (digest.Digest, error)
+ 	Delete(id digest.Digest) error
+@@ -86,6 +87,14 @@ func (s *fs) Walk(f DigestWalkFunc) error {
+ 	return nil
+ }
+ 
++// GetContentFile returns the content file path of specified image
++func (s *fs) GetContentFile(id digest.Digest) string {
++	s.RLock()
++	defer s.RUnlock()
++
++	return s.contentFile(id)
++}
++
+ // Get returns the content stored under a given digest.
+ func (s *fs) Get(dgst digest.Digest) ([]byte, error) {
+ 	s.RLock()
+diff --git a/components/engine/image/store.go b/components/engine/image/store.go
+index db75f06..b31cd4a 100644
+--- a/components/engine/image/store.go
++++ b/components/engine/image/store.go
+@@ -19,6 +19,7 @@ import (
+ type Store interface {
+ 	Create(config []byte) (ID, error)
+ 	Get(id ID) (*Image, error)
++	GetContentFile(id ID) string
+ 	GetAndCheck(id ID) (*Image, error)
+ 	Delete(id ID) ([]layer.Metadata, error)
+ 	Search(partialID string) (ID, error)
+@@ -225,6 +226,10 @@ func (is *store) Get(id ID) (*Image, error) {
+ 	return img, nil
+ }
+ 
++func (is *store) GetContentFile(id ID) string {
++	return is.fs.GetContentFile(id.Digest())
++}
++
+ func (is *store) GetAndCheck(id ID) (*Image, error) {
+ 	is.Lock()
+ 	if is.images[id] == nil {
+diff --git a/components/engine/integration-cli/docker_cli_save_load_test.go b/components/engine/integration-cli/docker_cli_save_load_test.go
+index 688eac6..5fbbfa0 100644
+--- a/components/engine/integration-cli/docker_cli_save_load_test.go
++++ b/components/engine/integration-cli/docker_cli_save_load_test.go
+@@ -164,14 +164,18 @@ func (s *DockerSuite) TestSaveAndLoadRepoFlags(c *check.C) {
+ 	deleteImages(repoName)
+ 	dockerCmd(c, "commit", name, repoName)
+ 
+-	before, _ := dockerCmd(c, "inspect", repoName)
++	before, _ := RunCommandPipelineWithOutput(
++		exec.Command(dockerBinary, "inspect", repoName),
++		exec.Command("grep", "-v", "Loaded"))
+ 
+ 	out, err := RunCommandPipelineWithOutput(
+ 		exec.Command(dockerBinary, "save", repoName),
+ 		exec.Command(dockerBinary, "load"))
+ 	c.Assert(err, checker.IsNil, check.Commentf("failed to save and load repo: %s, %v", out, err))
+ 
+-	after, _ := dockerCmd(c, "inspect", repoName)
++	after, _ := RunCommandPipelineWithOutput(
++		exec.Command(dockerBinary, "inspect", repoName),
++		exec.Command("grep", "-v", "Loaded"))
+ 	c.Assert(before, checker.Equals, after, check.Commentf("inspect is not the same after a save / load"))
+ }
+ 
+-- 
+2.6.4.windows.1
+

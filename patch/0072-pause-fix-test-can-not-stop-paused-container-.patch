@@ -1,0 +1,36 @@
+From 59d4dd7fdb0c33dc4c3be2330606ec7724cb368c Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Fri, 11 Jan 2019 17:16:21 +0800
+Subject: [PATCH 072/111] pause:  fix test can not stop paused
+ container failed
+
+reason: pause function moved to docker and does not support stop paused
+container. return error message when stop a paused container.
+
+Change-Id: Ia7b15877980088cdb4eaf9f7e3dd86667df0157b
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/integration/container/pause_test.go | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/integration/container/pause_test.go b/components/engine/integration/container/pause_test.go
+index 8dd2d784b7..da274c89ce 100644
+--- a/components/engine/integration/container/pause_test.go
++++ b/components/engine/integration/container/pause_test.go
+@@ -79,9 +79,10 @@ func TestPauseStopPausedContainer(t *testing.T) {
+ 	assert.NilError(t, err)
+ 
+ 	err = client.ContainerStop(ctx, cID, nil)
+-	assert.NilError(t, err)
+-
+-	poll.WaitOn(t, container.IsStopped(ctx, client, cID), poll.WithDelay(100*time.Millisecond))
++	// assert.NilError(t, err)
++	// poll.WaitOn(t, container.IsStopped(ctx, client, cID), poll.WithDelay(100*time.Millisecond))
++	assert.Check(t, is.ErrorContains(err, "is paused"))
++	client.ContainerUnpause(ctx, cID)
+ }
+ 
+ func getEventActions(t *testing.T, messages <-chan events.Message, errs <-chan error) []string {
+-- 
+2.17.1
+

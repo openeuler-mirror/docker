@@ -1,0 +1,34 @@
+From 1e9ad6a48e283bcc9850fb1439bf0be6be805010 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 00:49:35 +0800
+Subject: [PATCH 030/111] restart:  fix docker stats blocked while
+ docker daemon restart
+
+reason: cherry-pick commits to docker-18.09
+
+change closeChan channel from non-buffered channel to 2-buffered channel,
+        because non-blocked channel will be blocked while docker daemon restart
+
+Change-Id: Ica5dbefc85e463836b55e5d96da522a64a259f64
+Signed-off-by: jiangpengfei9 <jiangpengfei9@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+---
+ components/cli/cli/command/container/stats.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/cli/cli/command/container/stats.go b/components/cli/cli/command/container/stats.go
+index 4efcb19e65..1f9e1b8556 100644
+--- a/components/cli/cli/command/container/stats.go
++++ b/components/cli/cli/command/container/stats.go
+@@ -53,7 +53,7 @@ func NewStatsCommand(dockerCli command.Cli) *cobra.Command {
+ // nolint: gocyclo
+ func runStats(dockerCli command.Cli, opts *statsOptions) error {
+ 	showAll := len(opts.containers) == 0
+-	closeChan := make(chan error)
++	closeChan := make(chan error, 2)
+ 
+ 	ctx := context.Background()
+ 
+-- 
+2.17.1
+

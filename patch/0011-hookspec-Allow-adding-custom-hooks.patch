@@ -1,0 +1,288 @@
+From 65c782bb9b0b159f5644395cb291b8741b4400f4 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:15:40 +0800
+Subject: [PATCH 011/111] hookspec:  Allow adding custom hooks
+
+reason: Add new flag "--hook-spec" which accept a file containing custom hook
+definitions, custom hooks will be appended to system hooks which means
+docker will execute its own hook first(libnetwork prestart hook) to make
+sure everything predefined is working normally, user custom programme
+can be executed afterwards
+
+One example hook spec file can be of format:
+```
+{
+        "prestart": [
+            {
+                "path": "/bin/ls",
+                "args": ["ls"],
+                "env": []
+            }
+        ],
+        "poststart":[],
+        "poststop":[]
+}
+```
+
+Change-Id: Iee6f4e5b56ebf0647304c08c2948d599356192e6
+Signed-off-by: Zhang Wei <zhangwei555@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/cli/cli/command/container/opts.go  |  3 ++
+ .../cli/docs/reference/commandline/create.md  |  1 +
+ .../cli/docs/reference/commandline/run.md     |  1 +
+ components/cli/man/docker-run.1.md            | 28 +++++++++++++++++++
+ .../docker/api/types/container/host_config.go |  1 +
+ .../engine/api/types/container/host_config.go |  1 +
+ components/engine/container/container.go      |  4 ++-
+ components/engine/daemon/container.go         | 24 ++++++++++++++++
+ components/engine/daemon/daemon_unix.go       | 16 +++++++++++
+ components/engine/daemon/oci_linux.go         |  6 ++++
+ 10 files changed, 84 insertions(+), 1 deletion(-)
+
+diff --git a/components/cli/cli/command/container/opts.go b/components/cli/cli/command/container/opts.go
+index af30dfcbf2..8e07aa77cb 100644
+--- a/components/cli/cli/command/container/opts.go
++++ b/components/cli/cli/command/container/opts.go
+@@ -111,6 +111,7 @@ type containerOptions struct {
+ 	stopTimeout        int
+ 	isolation          string
+ 	shmSize            opts.MemBytes
++	hookSpec           string
+ 	noHealthcheck      bool
+ 	healthCmd          string
+ 	healthInterval     time.Duration
+@@ -283,6 +284,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 	flags.StringVar(&copts.isolation, "isolation", "", "Container isolation technology")
+ 	flags.StringVar(&copts.pidMode, "pid", "", "PID namespace to use")
+ 	flags.Var(&copts.shmSize, "shm-size", "Size of /dev/shm")
++	flags.StringVar(&copts.hookSpec, "hook-spec", "", "file containing hook definition(prestart, poststart, poststop)")
+ 	flags.StringVar(&copts.utsMode, "uts", "", "UTS namespace to use")
+ 	flags.StringVar(&copts.runtime, "runtime", "", "Runtime to use for this container")
+ 
+@@ -619,6 +621,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
+ 		VolumeDriver:   copts.volumeDriver,
+ 		Isolation:      container.Isolation(copts.isolation),
+ 		ShmSize:        copts.shmSize.Value(),
++		HookSpec:       copts.hookSpec,
+ 		Resources:      resources,
+ 		Tmpfs:          tmpfs,
+ 		Sysctls:        copts.sysctls.GetAll(),
+diff --git a/components/cli/docs/reference/commandline/create.md b/components/cli/docs/reference/commandline/create.md
+index 5d888183b3..34cb79a679 100644
+--- a/components/cli/docs/reference/commandline/create.md
++++ b/components/cli/docs/reference/commandline/create.md
+@@ -66,6 +66,7 @@ Options:
+       --health-start-period duration  Start period for the container to initialize before counting retries towards unstable (ns|us|ms|s|m|h) (default 0s)
+       --help                          Print usage
+   -h, --hostname string               Container host name
++      --hook-spec                     File containing hook definition(prestart, poststart, poststop)
+       --init                          Run an init inside the container that forwards signals and reaps processes
+   -i, --interactive                   Keep STDIN open even if not attached
+       --io-maxbandwidth string        Maximum IO bandwidth limit for the system drive (Windows only)
+diff --git a/components/cli/docs/reference/commandline/run.md b/components/cli/docs/reference/commandline/run.md
+index 21b4fdf261..1dc43ddcd9 100644
+--- a/components/cli/docs/reference/commandline/run.md
++++ b/components/cli/docs/reference/commandline/run.md
+@@ -70,6 +70,7 @@ Options:
+       --health-start-period duration  Start period for the container to initialize before counting retries towards unstable (ns|us|ms|s|m|h) (default 0s)
+       --help                          Print usage
+   -h, --hostname string               Container host name
++      --hook-spec                     File containing hook definition(prestart, poststart, poststop)
+       --init                          Run an init inside the container that forwards signals and reaps processes
+   -i, --interactive                   Keep STDIN open even if not attached
+       --io-maxbandwidth string        Maximum IO bandwidth limit for the system drive (Windows only)
+diff --git a/components/cli/man/docker-run.1.md b/components/cli/man/docker-run.1.md
+index 41f501d5b9..b0cbcd2e87 100644
+--- a/components/cli/man/docker-run.1.md
++++ b/components/cli/man/docker-run.1.md
+@@ -43,6 +43,7 @@ docker-run - Run a command in a new container
+ [**--group-add**[=*[]*]]
+ [**-h**|**--hostname**[=*HOSTNAME*]]
+ [**--help**]
++[**--hook-spec**[=*HOOKFILE*]]
+ [**--init**]
+ [**-i**|**--interactive**]
+ [**--ip**[=*IPv4-ADDRESS*]]
+@@ -330,6 +331,33 @@ redirection on the host system.
+ **--help**
+    Print usage statement
+ 
++**--hook-spec**=""
++  Add custom hooks for container
++
++  With this flag, user can specify a file containing custom hook, an example hook file can be like this:
++
++```
++{
++        "prestart": [
++            {   
++                "path": "/usr/libexec/oci/hooks.d/oci-systemd-hook",
++                "args": ["oci-systemd-hook", "prestart"],
++                "env": ["container=runc"]
++            }
++        ],  
++        "poststop":[
++            {   
++                "path": "/usr/libexec/oci/hooks.d/oci-systemd-hook",
++                "args": ["oci-systemd-hook", "poststop"],
++                "env": ["container=runc"]
++            }
++        ]   
++}
++```
++
++  currently it supports three hooks: "prestart", "poststart", "poststop". 
++  See OCI spec definition for more information about "hooks".
++
+ **--init**
+    Run an init inside the container that forwards signals and reaps processes
+ 
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go b/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
+index 1565b5e091..701cae55f1 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
+@@ -395,6 +395,7 @@ type HostConfig struct {
+ 	// Applicable to Windows
+ 	ConsoleSize [2]uint   // Initial console size (height,width)
+ 	Isolation   Isolation // Isolation technology of the container (e.g. default, hyperv)
++	HookSpec    string    // specification file containing custom hook definition
+ 
+ 	// Contains container's resources (cgroups, ulimits)
+ 	Resources
+diff --git a/components/engine/api/types/container/host_config.go b/components/engine/api/types/container/host_config.go
+index 1565b5e091..701cae55f1 100644
+--- a/components/engine/api/types/container/host_config.go
++++ b/components/engine/api/types/container/host_config.go
+@@ -395,6 +395,7 @@ type HostConfig struct {
+ 	// Applicable to Windows
+ 	ConsoleSize [2]uint   // Initial console size (height,width)
+ 	Isolation   Isolation // Isolation technology of the container (e.g. default, hyperv)
++	HookSpec    string    // specification file containing custom hook definition
+ 
+ 	// Contains container's resources (cgroups, ulimits)
+ 	Resources
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index f74676f7ee..02adc2019a 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -38,6 +38,7 @@ import (
+ 	volumemounts "github.com/docker/docker/volume/mounts"
+ 	"github.com/docker/go-units"
+ 	agentexec "github.com/docker/swarmkit/agent/exec"
++	"github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
+ )
+@@ -93,6 +94,8 @@ type Container struct {
+ 	LogCopier      *logger.Copier `json:"-"`
+ 	restartManager restartmanager.RestartManager
+ 	attachContext  *attachContext
++	Hooks          specs.Hooks
++	CgroupParent   string
+ 
+ 	// Fields here are specific to Unix platforms
+ 	AppArmorProfile string
+@@ -106,7 +109,6 @@ type Container struct {
+ 	// Fields here are specific to Windows
+ 	NetworkSharedContainerID string   `json:"-"`
+ 	SharedEndpointList       []string `json:"-"`
+-	CgroupParent             string
+ }
+ 
+ // NewBaseContainer creates a new container with its
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index bd96de2571..8e68904b16 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -1,6 +1,7 @@
+ package daemon // import "github.com/docker/docker/daemon"
+ 
+ import (
++	"encoding/json"
+ 	"fmt"
+ 	"os"
+ 	"path"
+@@ -224,11 +225,34 @@ func (daemon *Daemon) setHostConfig(container *container.Container, hostConfig *
+ 		return err
+ 	}
+ 
++	// register hooks to container
++	if err := daemon.registerHooks(container, hostConfig); err != nil {
++		return err
++	}
++
+ 	runconfig.SetDefaultNetModeIfBlank(hostConfig)
+ 	container.HostConfig = hostConfig
+ 	return container.CheckpointTo(daemon.containersReplica)
+ }
+ 
++
++func (daemon *Daemon) registerHooks(container *container.Container, hostConfig *containertypes.HostConfig) error {
++	if hostConfig.HookSpec == "" {
++		return nil
++	}
++	// the hook spec has already been sanitized, so no need for validation again
++	f, err := os.Open(hostConfig.HookSpec)
++	if err != nil {
++		return fmt.Errorf("open hook spec file error: %v", err)
++	}
++	defer f.Close()
++
++	if err = json.NewDecoder(f).Decode(&container.Hooks); err != nil {
++		return fmt.Errorf("malformed hook spec, is your spec file in json format? error: %v", err)
++	}
++	return nil
++}
++
+ // verifyContainerSettings performs validation of the hostconfig and config
+ // structures.
+ func (daemon *Daemon) verifyContainerSettings(platform string, hostConfig *containertypes.HostConfig, config *containertypes.Config, update bool) ([]string, error) {
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index f4b75055f5..ebf4e067fb 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -627,6 +627,22 @@ func (daemon *Daemon) verifyPlatformContainerSettings(hostConfig *containertypes
+ 			return warnings, fmt.Errorf("cgroup-parent for systemd cgroup should be a valid slice named as \"xxx.slice\"")
+ 		}
+ 	}
++
++	if hostConfig.HookSpec != "" {
++		hostConfig.HookSpec = filepath.Clean(hostConfig.HookSpec)
++		if !filepath.IsAbs(hostConfig.HookSpec) {
++			return warnings, fmt.Errorf("Hook spec file must be an absolute path")
++		}
++		fi, err := os.Stat(hostConfig.HookSpec)
++		if err != nil {
++			return warnings, fmt.Errorf("stat hook spec file failed: %v", err)
++		}
++		if !fi.Mode().IsRegular() {
++			return warnings, fmt.Errorf("Hook spec file must be a regular text file")
++		}
++	}
++
++
+ 	if hostConfig.Runtime == "" {
+ 		hostConfig.Runtime = daemon.configStore.GetDefaultRuntimeName()
+ 	}
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index 5018b21f0d..884739c07e 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -818,6 +818,12 @@ func (daemon *Daemon) createSpec(c *container.Container) (retSpec *specs.Spec, e
+ 		}
+ 	}
+ 
++	// apppend user custom hooks after system hooks
++	// make sure docker's predefined hooks are executed before custom hooks
++	s.Hooks.Prestart = append(s.Hooks.Prestart, c.Hooks.Prestart...)
++	s.Hooks.Poststart = append(s.Hooks.Poststart, c.Hooks.Poststart...)
++	s.Hooks.Poststop = append(s.Hooks.Poststop, c.Hooks.Poststop...)
++
+ 	if apparmor.IsEnabled() {
+ 		var appArmorProfile string
+ 		if c.AppArmorProfile != "" {
+-- 
+2.17.1
+

@@ -1,0 +1,72 @@
+From a6c5e3824b6b8d3a443e1a14136360cc73779296 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:17:06 +0800
+Subject: [PATCH 015/111] hookspec:  add limit of hook spec file
+
+reason: add limit of hook spec file, to prevent docker daemon OOM.
+
+Change-Id: I11afebf163de3c401ed4f9b8f30c403f1d15de77
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/container.go   |  8 ++++++++
+ components/engine/daemon/daemon_unix.go | 15 ++-------------
+ 2 files changed, 10 insertions(+), 13 deletions(-)
+
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index 8f9f6baf25..a8cb950f44 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -30,6 +30,11 @@ import (
+ 	"github.com/pkg/errors"
+ )
+ 
++const (
++	// hook spec file size limit (in bytes)
++	hookSpecSizeLimit = (10 * 1024 * 1024)
++)
++
+ // GetContainer looks for a container using the provided information, which could be
+ // one of the following inputs from the caller:
+ //  - A full container ID, which will exact match a container in daemon's list
+@@ -251,6 +256,9 @@ func (daemon *Daemon) sanitizeHookSpec(spec string) (string, error) {
+ 		if !fi.Mode().IsRegular() {
+ 			return "", fmt.Errorf("hook spec file must be a regular text file")
+ 		}
++		if fi.Size() > hookSpecSizeLimit {
++			return "", fmt.Errorf("Hook spec file size must not exceed %d bytes", hookSpecSizeLimit)
++		}
+ 	}
+ 	return spec, nil
+ }
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index ebf4e067fb..5b390d2db1 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -628,21 +628,10 @@ func (daemon *Daemon) verifyPlatformContainerSettings(hostConfig *containertypes
+ 		}
+ 	}
+ 
+-	if hostConfig.HookSpec != "" {
+-		hostConfig.HookSpec = filepath.Clean(hostConfig.HookSpec)
+-		if !filepath.IsAbs(hostConfig.HookSpec) {
+-			return warnings, fmt.Errorf("Hook spec file must be an absolute path")
+-		}
+-		fi, err := os.Stat(hostConfig.HookSpec)
+-		if err != nil {
+-			return warnings, fmt.Errorf("stat hook spec file failed: %v", err)
+-		}
+-		if !fi.Mode().IsRegular() {
+-			return warnings, fmt.Errorf("Hook spec file must be a regular text file")
+-		}
++	if hostConfig.HookSpec, err = daemon.sanitizeHookSpec(hostConfig.HookSpec); err != nil {
++		return warnings, err
+ 	}
+ 
+-
+ 	if hostConfig.Runtime == "" {
+ 		hostConfig.Runtime = daemon.configStore.GetDefaultRuntimeName()
+ 	}
+-- 
+2.17.1
+

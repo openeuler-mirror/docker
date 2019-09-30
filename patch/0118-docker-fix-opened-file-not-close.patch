@@ -1,0 +1,39 @@
+From 2fb693565515e5aac7ba69b93320edb39f3c7fbb Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Fri, 19 Apr 2019 17:38:43 +0800
+Subject: [PATCH] docker: fix opened file not close
+
+Change-Id: Ibf832b1971a85c85de8dfc0587f5d8762e70c16e
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/cli/internal/pkg/containerized/proxy.go     | 1 +
+ components/engine/daemon/logger/loggerutils/logfile.go | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/components/cli/internal/pkg/containerized/proxy.go b/components/cli/internal/pkg/containerized/proxy.go
+index ed195db..f88be52 100644
+--- a/components/cli/internal/pkg/containerized/proxy.go
++++ b/components/cli/internal/pkg/containerized/proxy.go
+@@ -57,6 +57,7 @@ func storeConfig(name string, cfg *proxyConfig) error {
+ 	if err != nil {
+ 		return err
+ 	}
++	defer fd.Close()
+ 	err = fd.Truncate(0)
+ 	if err != nil {
+ 		return err
+diff --git a/components/engine/daemon/logger/loggerutils/logfile.go b/components/engine/daemon/logger/loggerutils/logfile.go
+index 623f78f..3b30ce2 100644
+--- a/components/engine/daemon/logger/loggerutils/logfile.go
++++ b/components/engine/daemon/logger/loggerutils/logfile.go
+@@ -118,6 +118,7 @@ func NewLogFile(logPath string, capacity int64, maxFiles int, compress bool, mar
+ 
+ 	size, err := log.Seek(0, os.SEEK_END)
+ 	if err != nil {
++		log.Close()
+ 		return nil, err
+ 	}
+ 
+-- 
+1.8.3.1
+

@@ -1,0 +1,44 @@
+From d0625f253c9cfd62e043f1799b9f9c2a0e2fdb21 Mon Sep 17 00:00:00 2001
+From: caihaomin <caihaomin@huawei.com>
+Date: Sun, 20 Jan 2019 13:59:45 +0800
+Subject: [PATCH 025/111] resource-limit: enable unlimited usage of
+ memory compoents
+
+reason:enable unlimited usage of memory compoents
+
+Change-Id: I24871d1b2ef1fe20277d5e5c721d1297fa5fd6cf
+Signed-off-by: caihaomin <caihaomin@huawei.com>
+---
+ components/engine/container/container_unix.go | 2 +-
+ components/engine/daemon/update_linux.go      | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/container/container_unix.go b/components/engine/container/container_unix.go
+index ed664f3eec..5a21b8c483 100644
+--- a/components/engine/container/container_unix.go
++++ b/components/engine/container/container_unix.go
+@@ -323,7 +323,7 @@ func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfi
+ 	if resources.Memory != 0 {
+ 		// if memory limit smaller than already set memoryswap limit and doesn't
+ 		// update the memoryswap limit, then error out.
+-		if resources.Memory > cResources.MemorySwap && resources.MemorySwap == 0 {
++		if cResources.MemorySwap > 0 && resources.Memory > cResources.MemorySwap && resources.MemorySwap == 0 {
+ 			return conflictingUpdateOptions("Memory limit should be smaller than already set memoryswap limit, update the memoryswap at the same time")
+ 		}
+ 		cResources.Memory = resources.Memory
+diff --git a/components/engine/daemon/update_linux.go b/components/engine/daemon/update_linux.go
+index 6a307eabc5..1a6f070b82 100644
+--- a/components/engine/daemon/update_linux.go
++++ b/components/engine/daemon/update_linux.go
+@@ -46,7 +46,7 @@ func toContainerdResources(resources container.Resources) *libcontainerd.Resourc
+ 		Kernel:      &resources.KernelMemory,
+ 	}
+ 
+-	if resources.MemorySwap > 0 {
++	if resources.MemorySwap != 0 {
+ 		r.Memory.Swap = &resources.MemorySwap
+ 	}
+ 
+-- 
+2.17.1
+

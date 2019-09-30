@@ -1,0 +1,30 @@
+From 5370b3b9f2f4adfc10bbc3db5903b1a23e13f6c2 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 00:37:17 +0800
+Subject: [PATCH 027/111] oci:  add files_panic_enable to masked path
+
+reason: cherry-pick commits to docker-18.09
+
+reason:add files_panic_enable to masked path
+
+Change-Id: I3d6fb04a1063f64ad52e40cb5debf21c301d829c
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+---
+ components/engine/oci/defaults.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index 5e17ea3f38..e39140b47f 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -123,6 +123,7 @@ func DefaultLinuxSpec() specs.Spec {
+ 			"/proc/timer_stats",
+ 			"/proc/sched_debug",
+ 			"/proc/scsi",
++			"/proc/files_panic_enable",
+ 			"/sys/firmware",
+ 		},
+ 		ReadonlyPaths: []string{
+-- 
+2.17.1
+

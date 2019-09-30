@@ -1,0 +1,149 @@
+From 961d5e98090e4725dca298dde8afb8df54f99f2e Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:15:25 +0800
+Subject: [PATCH 010/111] annotation:  add annotation into cli flag
+
+reason: add annotation into cli flag
+
+Change-Id: Ibca64819e6f390c70e8516a1462d8e465fcfe080
+Signed-off-by: caihaomin <caihaomin@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/cli/cli/command/container/opts.go  |  7 +++++
+ .../docker/api/types/container/config.go      |  1 +
+ .../engine/api/types/container/config.go      |  1 +
+ components/engine/api/types/types.go          | 28 ++++++++++---------
+ components/engine/daemon/oci_linux.go         |  1 +
+ 5 files changed, 25 insertions(+), 13 deletions(-)
+
+diff --git a/components/cli/cli/command/container/opts.go b/components/cli/cli/command/container/opts.go
+index efb28a2cdf..af30dfcbf2 100644
+--- a/components/cli/cli/command/container/opts.go
++++ b/components/cli/cli/command/container/opts.go
+@@ -43,6 +43,7 @@ type containerOptions struct {
+ 	deviceWriteIOps    opts.ThrottledeviceOpt
+ 	env                opts.ListOpts
+ 	labels             opts.ListOpts
++	annotation         opts.ListOpts
+ 	deviceCgroupRules  opts.ListOpts
+ 	devices            opts.ListOpts
+ 	ulimits            *opts.UlimitOpt
+@@ -148,6 +149,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 		groupAdd:          opts.NewListOpts(nil),
+ 		labels:            opts.NewListOpts(nil),
+ 		labelsFile:        opts.NewListOpts(nil),
++		annotation:        opts.NewListOpts(opts.ValidateEnv),
+ 		linkLocalIPs:      opts.NewListOpts(nil),
+ 		links:             opts.NewListOpts(opts.ValidateLink),
+ 		loggingOpts:       opts.NewListOpts(nil),
+@@ -173,6 +175,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 	flags.BoolVarP(&copts.stdin, "interactive", "i", false, "Keep STDIN open even if not attached")
+ 	flags.VarP(&copts.labels, "label", "l", "Set meta data on a container")
+ 	flags.Var(&copts.labelsFile, "label-file", "Read in a line delimited file of labels")
++	flags.Var(&copts.annotation, "annotation", "Set annotations on a container")
+ 	flags.BoolVar(&copts.readonlyRootfs, "read-only", false, "Mount the container's root filesystem as read only")
+ 	flags.StringVar(&copts.restartPolicy, "restart", "no", "Restart policy to apply when a container exits")
+ 	flags.StringVar(&copts.stopSignal, "stop-signal", signal.DefaultStopSignal, "Signal to stop a container")
+@@ -438,6 +441,9 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
+ 		return nil, err
+ 	}
+ 
++	// collect all the annotations for the container
++	annotations := copts.annotation.GetAll()
++
+ 	pidMode := container.PidMode(copts.pidMode)
+ 	if !pidMode.Valid() {
+ 		return nil, errors.Errorf("--pid: invalid PID mode")
+@@ -568,6 +574,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
+ 		Entrypoint:      entrypoint,
+ 		WorkingDir:      copts.workingDir,
+ 		Labels:          opts.ConvertKVStringsToMap(labels),
++		Annotations:     opts.ConvertKVStringsToMap(annotations),
+ 		Healthcheck:     healthConfig,
+ 	}
+ 	if flags.Changed("stop-signal") {
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/container/config.go b/components/cli/vendor/github.com/docker/docker/api/types/container/config.go
+index 89ad08c234..c28f0b101e 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/container/config.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/container/config.go
+@@ -63,6 +63,7 @@ type Config struct {
+ 	MacAddress      string              `json:",omitempty"` // Mac Address of the container
+ 	OnBuild         []string            // ONBUILD metadata that were defined on the image Dockerfile
+ 	Labels          map[string]string   // List of labels set to this container
++	Annotations     map[string]string   // List of annotations set to this container
+ 	StopSignal      string              `json:",omitempty"` // Signal to stop a container
+ 	StopTimeout     *int                `json:",omitempty"` // Timeout (in seconds) to stop a container
+ 	Shell           strslice.StrSlice   `json:",omitempty"` // Shell for shell-form of RUN, CMD, ENTRYPOINT
+diff --git a/components/engine/api/types/container/config.go b/components/engine/api/types/container/config.go
+index 89ad08c234..c28f0b101e 100644
+--- a/components/engine/api/types/container/config.go
++++ b/components/engine/api/types/container/config.go
+@@ -63,6 +63,7 @@ type Config struct {
+ 	MacAddress      string              `json:",omitempty"` // Mac Address of the container
+ 	OnBuild         []string            // ONBUILD metadata that were defined on the image Dockerfile
+ 	Labels          map[string]string   // List of labels set to this container
++	Annotations     map[string]string   // List of annotations set to this container
+ 	StopSignal      string              `json:",omitempty"` // Signal to stop a container
+ 	StopTimeout     *int                `json:",omitempty"` // Timeout (in seconds) to stop a container
+ 	Shell           strslice.StrSlice   `json:",omitempty"` // Shell for shell-form of RUN, CMD, ENTRYPOINT
+diff --git a/components/engine/api/types/types.go b/components/engine/api/types/types.go
+index a8fae3ba32..959e9eb447 100644
+--- a/components/engine/api/types/types.go
++++ b/components/engine/api/types/types.go
+@@ -56,19 +56,20 @@ type ImageMetadata struct {
+ // Container contains response of Engine API:
+ // GET "/containers/json"
+ type Container struct {
+-	ID         string `json:"Id"`
+-	Names      []string
+-	Image      string
+-	ImageID    string
+-	Command    string
+-	Created    int64
+-	Ports      []Port
+-	SizeRw     int64 `json:",omitempty"`
+-	SizeRootFs int64 `json:",omitempty"`
+-	Labels     map[string]string
+-	State      string
+-	Status     string
+-	HostConfig struct {
++	ID          string `json:"Id"`
++	Names       []string
++	Image       string
++	ImageID     string
++	Command     string
++	Created     int64
++	Ports       []Port
++	SizeRw      int64 `json:",omitempty"`
++	SizeRootFs  int64 `json:",omitempty"`
++	Labels      map[string]string
++	Annotaitons map[string]string
++	State       string
++	Status      string
++	HostConfig  struct {
+ 		NetworkMode string `json:",omitempty"`
+ 	}
+ 	NetworkSettings *SummaryNetworkSettings
+@@ -188,6 +189,7 @@ type Info struct {
+ 	NoProxy            string
+ 	Name               string
+ 	Labels             []string
++	Annotations        []string
+ 	ExperimentalBuild  bool
+ 	ServerVersion      string
+ 	ClusterStore       string
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index 210d2ad3f6..5018b21f0d 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -846,6 +846,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (retSpec *specs.Spec, e
+ 	s.Process.NoNewPrivileges = c.NoNewPrivileges
+ 	s.Process.OOMScoreAdj = &c.HostConfig.OomScoreAdj
+ 	s.Linux.MountLabel = c.MountLabel
++	s.Annotations = c.Config.Annotations
+ 
+ 	// Set the masked and readonly paths with regard to the host config options if they are set.
+ 	if c.HostConfig.MaskedPaths != nil {
+-- 
+2.17.1
+

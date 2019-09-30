@@ -1,0 +1,33 @@
+From 7065246077ffc29990c5d58f3b8452169e3cb38a Mon Sep 17 00:00:00 2001
+From: wujibin <wujibin@huawei.com>
+Date: Mon, 22 Jul 2019 16:25:25 +0800
+Subject: [PATCH] docker:  add timestamp when setup iptables
+
+reason: show setup iptables begin and end timestamp for debug
+
+Change-Id: I1d3996f80aa187772bf7f1ae4ea9b3c9314e0b4e
+Signed-off-by: wujibin <wujibin@huawei.com>
+---
+ .../docker/libnetwork/drivers/bridge/setup_ip_tables.go        | 3 +++
+ 1 file changed, 3 insertions(+)
+ mode change 100644 => 100755 components/engine/vendor/github.com/docker/libnetwork/drivers/bridge/setup_ip_tables.go
+
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/bridge/setup_ip_tables.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/bridge/setup_ip_tables.go
+old mode 100644
+new mode 100755
+index 5865a18f18..d134857074
+--- a/components/engine/vendor/github.com/docker/libnetwork/drivers/bridge/setup_ip_tables.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/bridge/setup_ip_tables.go
+@@ -101,6 +101,9 @@ func (n *bridgeNetwork) setupIPTables(config *networkConfiguration, i *bridgeInt
+ 	driverConfig := d.config
+ 	d.Unlock()
+ 
++	logrus.Info("Setup IP tables begin")
++	defer logrus.Info("Setup IP tables end")
++
+ 	// Sanity check.
+ 	if driverConfig.EnableIPTables == false {
+ 		return errors.New("Cannot program chains, EnableIPTable is disabled")
+-- 
+2.19.0
+

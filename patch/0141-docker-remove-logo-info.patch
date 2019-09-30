@@ -1,0 +1,43 @@
+From 817a6a5d7f3bf91a4560deac23a656fa53c16e69 Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Thu, 15 Aug 2019 20:24:58 +0800
+Subject: [PATCH] docker: remove logo info
+
+reason: remove logo info
+
+Change-Id: I1c0317a027ea277e03cdfafd3d8b85a4efbf3d0a
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/cli/scripts/build/.variables | 2 +-
+ components/engine/hack/make.sh          | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/cli/scripts/build/.variables b/components/cli/scripts/build/.variables
+index d504032..86d0e3a 100755
+--- a/components/cli/scripts/build/.variables
++++ b/components/cli/scripts/build/.variables
+@@ -3,7 +3,7 @@ set -eu
+ 
+ PLATFORM=${PLATFORM:-}
+ VERSION=${VERSION:-"unknown-version"}
+-EULERVERSION=${EULERVERSION:-$(cat VERSION-EULER)}
++EULERVERSION=${EULERVERSION:-$(cat VERSION-openeuler)}
+ GITCOMMIT=${GITCOMMIT:-$(git rev-parse --short HEAD 2> /dev/null || true)}
+ BUILDTIME=${BUILDTIME:-$(date --utc --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')}
+ 
+diff --git a/components/engine/hack/make.sh b/components/engine/hack/make.sh
+index fa87d91..686e688 100755
+--- a/components/engine/hack/make.sh
++++ b/components/engine/hack/make.sh
+@@ -65,7 +65,7 @@ DEFAULT_BUNDLES=(
+ 	cross
+ )
+ 
+-VERSION_EULER=$(< ./VERSION-EULER)
++VERSION_EULER=$(< ./VERSION-openeuler)
+ VERSION=${VERSION:-dev}
+ ! BUILDTIME=$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')
+ if [ "$DOCKER_GITCOMMIT" ]; then
+-- 
+1.8.3.1
+

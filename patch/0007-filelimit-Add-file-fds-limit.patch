@@ -1,0 +1,319 @@
+From 1e26a8c5d18eb93c2786eff9eeede77f3b8162df Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:14:23 +0800
+Subject: [PATCH 007/111] filelimit:  Add file fds limit
+
+Change-Id: I4255fc648ad71dcba78fe38fae9d26454e2e41d8
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/cli/cli/command/container/opts.go      |  3 +++
+ components/cli/contrib/completion/bash/docker     |  1 +
+ components/cli/contrib/completion/zsh/_docker     |  1 +
+ .../cli/docs/reference/commandline/create.md      |  1 +
+ components/cli/docs/reference/commandline/run.md  |  1 +
+ components/cli/man/docker-run.1.md                |  4 ++++
+ .../vendor/github.com/docker/docker/api/Checklist |  1 +
+ .../docker/api/types/container/host_config.go     |  1 +
+ .../engine/api/types/container/host_config.go     |  1 +
+ components/engine/daemon/daemon_unix.go           |  6 ++++++
+ components/engine/daemon/oci_linux.go             |  3 +++
+ .../integration-cli/docker_cli_run_unix_test.go   | 10 ++++++++++
+ .../integration-cli/requirements_unix_test.go     |  4 ++++
+ components/engine/pkg/sysinfo/sysinfo.go          |  6 ++++++
+ components/engine/pkg/sysinfo/sysinfo_linux.go    | 15 +++++++++++++++
+ .../opencontainers/runtime-spec/Checklist         |  1 +
+ .../runtime-spec/specs-go/config.go               |  8 ++++++++
+ 17 files changed, 67 insertions(+)
+ create mode 100644 components/cli/vendor/github.com/docker/docker/api/Checklist
+ create mode 100644 components/engine/vendor/github.com/opencontainers/runtime-spec/Checklist
+
+diff --git a/components/cli/cli/command/container/opts.go b/components/cli/cli/command/container/opts.go
+index 97906b6722..efb28a2cdf 100644
+--- a/components/cli/cli/command/container/opts.go
++++ b/components/cli/cli/command/container/opts.go
+@@ -100,6 +100,7 @@ type containerOptions struct {
+ 	ipv6Address        string
+ 	ipcMode            string
+ 	pidsLimit          int64
++	filesLimit         int64
+ 	restartPolicy      string
+ 	readonlyRootfs     bool
+ 	loggingDriver      string
+@@ -271,6 +272,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 	flags.BoolVar(&copts.oomKillDisable, "oom-kill-disable", false, "Disable OOM Killer")
+ 	flags.IntVar(&copts.oomScoreAdj, "oom-score-adj", 0, "Tune host's OOM preferences (-1000 to 1000)")
+ 	flags.Int64Var(&copts.pidsLimit, "pids-limit", 0, "Tune container pids limit (set -1 for unlimited)")
++	flags.Int64Var(&copts.filesLimit, "files-limit", 0, "Tune container files limit (set -1 for unlimited)")
+ 
+ 	// Low-level execution (cgroups, namespaces, ...)
+ 	flags.StringVar(&copts.cgroupParent, "cgroup-parent", "", "Optional parent cgroup for the container")
+@@ -531,6 +533,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
+ 		CPURealtimePeriod:    copts.cpuRealtimePeriod,
+ 		CPURealtimeRuntime:   copts.cpuRealtimeRuntime,
+ 		PidsLimit:            copts.pidsLimit,
++		FilesLimit:           copts.filesLimit,
+ 		BlkioWeight:          copts.blkioWeight,
+ 		BlkioWeightDevice:    copts.blkioWeightDevice.GetList(),
+ 		BlkioDeviceReadBps:   copts.deviceReadBps.GetList(),
+diff --git a/components/cli/contrib/completion/bash/docker b/components/cli/contrib/completion/bash/docker
+index 44ac8f3e0e..2e2c8cb04f 100644
+--- a/components/cli/contrib/completion/bash/docker
++++ b/components/cli/contrib/completion/bash/docker
+@@ -1789,6 +1789,7 @@ _docker_container_run_and_create() {
+ 		--env -e
+ 		--env-file
+ 		--expose
++		--files-limit
+ 		--group-add
+ 		--health-cmd
+ 		--health-interval
+diff --git a/components/cli/contrib/completion/zsh/_docker b/components/cli/contrib/completion/zsh/_docker
+index 94f042204d..cbbdfdb798 100644
+--- a/components/cli/contrib/completion/zsh/_docker
++++ b/components/cli/contrib/completion/zsh/_docker
+@@ -621,6 +621,7 @@ __docker_container_subcommand() {
+         "($help)--entrypoint=[Overwrite the default entrypoint of the image]:entry point: "
+         "($help)*--env-file=[Read environment variables from a file]:environment file:_files"
+         "($help)*--expose=[Expose a port from the container without publishing it]: "
++        "($help)--files-limit[Tune container files limit (set -1 for max)]"
+         "($help)*--group=[Set one or more supplementary user groups for the container]:group:_groups"
+         "($help -h --hostname)"{-h=,--hostname=}"[Container host name]:hostname:_hosts"
+         "($help -i --interactive)"{-i,--interactive}"[Keep stdin open even if not attached]"
+diff --git a/components/cli/docs/reference/commandline/create.md b/components/cli/docs/reference/commandline/create.md
+index d585da40ae..5d888183b3 100644
+--- a/components/cli/docs/reference/commandline/create.md
++++ b/components/cli/docs/reference/commandline/create.md
+@@ -57,6 +57,7 @@ Options:
+   -e, --env value                     Set environment variables (default [])
+       --env-file value                Read in a file of environment variables (default [])
+       --expose value                  Expose a port or a range of ports (default [])
++      --files-limit int               Tune container files limit (set -1 for unlimited)
+       --group-add value               Add additional groups to join (default [])
+       --health-cmd string             Command to run to check health
+       --health-interval duration      Time between running the check (ns|us|ms|s|m|h) (default 0s)
+diff --git a/components/cli/docs/reference/commandline/run.md b/components/cli/docs/reference/commandline/run.md
+index 08b9f18d68..21b4fdf261 100644
+--- a/components/cli/docs/reference/commandline/run.md
++++ b/components/cli/docs/reference/commandline/run.md
+@@ -61,6 +61,7 @@ Options:
+   -e, --env value                     Set environment variables (default [])
+       --env-file value                Read in a file of environment variables (default [])
+       --expose value                  Expose a port or a range of ports (default [])
++      --files-limit int               Tune container files limit (set -1 for unlimited)
+       --group-add value               Add additional groups to join (default [])
+       --health-cmd string             Command to run to check health
+       --health-interval duration      Time between running the check (ns|us|ms|s|m|h) (default 0s)
+diff --git a/components/cli/man/docker-run.1.md b/components/cli/man/docker-run.1.md
+index e03377001d..41f501d5b9 100644
+--- a/components/cli/man/docker-run.1.md
++++ b/components/cli/man/docker-run.1.md
+@@ -39,6 +39,7 @@ docker-run - Run a command in a new container
+ [**--entrypoint**[=*ENTRYPOINT*]]
+ [**--env-file**[=*[]*]]
+ [**--expose**[=*[]*]]
++[**--files-limit**[=*FILES_LIMIT*]]
+ [**--group-add**[=*[]*]]
+ [**-h**|**--hostname**[=*HOSTNAME*]]
+ [**--help**]
+@@ -315,6 +316,9 @@ that the container listens on the specified network ports at runtime. Docker
+ uses this information to interconnect containers using links and to set up port
+ redirection on the host system.
+ 
++**--files-limit**=""
++   Tune the container's files limit. Set `-1` to have max files for the container.
++
+ **--group-add**=[]
+    Add additional groups to run as
+ 
+diff --git a/components/cli/vendor/github.com/docker/docker/api/Checklist b/components/cli/vendor/github.com/docker/docker/api/Checklist
+new file mode 100644
+index 0000000000..9594f235e4
+--- /dev/null
++++ b/components/cli/vendor/github.com/docker/docker/api/Checklist
+@@ -0,0 +1 @@
++Add FilesLimit to components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go for supporting --files-limit
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go b/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
+index 4ef26fa6c8..1565b5e091 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/container/host_config.go
+@@ -334,6 +334,7 @@ type Resources struct {
+ 	MemorySwappiness     *int64          // Tuning container memory swappiness behaviour
+ 	OomKillDisable       *bool           // Whether to disable OOM Killer or not
+ 	PidsLimit            int64           // Setting pids limit for a container
++	FilesLimit           int64           // Setting files limit for a container
+ 	Ulimits              []*units.Ulimit // List of ulimits to be set in the container
+ 
+ 	// Applicable to Windows
+diff --git a/components/engine/api/types/container/host_config.go b/components/engine/api/types/container/host_config.go
+index 4ef26fa6c8..1565b5e091 100644
+--- a/components/engine/api/types/container/host_config.go
++++ b/components/engine/api/types/container/host_config.go
+@@ -334,6 +334,7 @@ type Resources struct {
+ 	MemorySwappiness     *int64          // Tuning container memory swappiness behaviour
+ 	OomKillDisable       *bool           // Whether to disable OOM Killer or not
+ 	PidsLimit            int64           // Setting pids limit for a container
++	FilesLimit           int64           // Setting files limit for a container
+ 	Ulimits              []*units.Ulimit // List of ulimits to be set in the container
+ 
+ 	// Applicable to Windows
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 1b35df4950..138b8ac544 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -425,6 +425,12 @@ func verifyContainerResources(resources *containertypes.Resources, sysInfo *sysi
+ 		resources.PidsLimit = 0
+ 	}
+ 
++	if resources.FilesLimit != 0 && !sysInfo.FilesLimit {
++		warnings = append(warnings, "Your kernel does not support files limit capabilities, files limit discarded.")
++		logrus.Warnf("Your kernel does not support files limit capabilities, files limit discarded.")
++		resources.FilesLimit = 0
++	}
++
+ 	// cpu subsystem checks and adjustments
+ 	if resources.NanoCPUs > 0 && resources.CPUPeriod > 0 {
+ 		return warnings, fmt.Errorf("Conflicting options: Nano CPUs and CPU Period cannot both be set")
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index 864d22fbcb..210d2ad3f6 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -70,6 +70,9 @@ func setResources(s *specs.Spec, r containertypes.Resources) error {
+ 		Pids: &specs.LinuxPids{
+ 			Limit: r.PidsLimit,
+ 		},
++		Files: &specs.Files{
++			Limit: &r.FilesLimit,
++		},
+ 	}
+ 
+ 	if s.Linux.Resources != nil && len(s.Linux.Resources.Devices) > 0 {
+diff --git a/components/engine/integration-cli/docker_cli_run_unix_test.go b/components/engine/integration-cli/docker_cli_run_unix_test.go
+index 5f782ee530..a618316d4b 100644
+--- a/components/engine/integration-cli/docker_cli_run_unix_test.go
++++ b/components/engine/integration-cli/docker_cli_run_unix_test.go
+@@ -1414,6 +1414,16 @@ func (s *DockerSuite) TestRunPIDsLimit(c *check.C) {
+ 	c.Assert(out, checker.Equals, "4", check.Commentf("setting the pids limit failed"))
+ }
+ 
++// TestRunFilesLimit makes sure the files cgroup is set with --files-limit
++func (s *DockerSuite) TestRunFilesLimit(c *check.C) {
++	testRequires(c, filesLimit)
++	file := "/sys/fs/cgroup/files/files.limit"
++	out, _ := dockerCmd(c, "run", "--name", "fileslimit", "--files-limit", "32", "busybox", "cat", file)
++	c.Assert(strings.TrimSpace(out), checker.Equals, "32")
++	out = inspectField(c, "fileslimit", "HostConfig.FilesLimit")
++	c.Assert(out, checker.Equals, "32", check.Commentf("setting the files limit failed"))
++}
++
+ func (s *DockerSuite) TestRunPrivilegedAllowedDevices(c *check.C) {
+ 	testRequires(c, DaemonIsLinux, NotUserNamespace)
+ 
+diff --git a/components/engine/integration-cli/requirements_unix_test.go b/components/engine/integration-cli/requirements_unix_test.go
+index 7c594f7db4..873c1fbfe2 100644
+--- a/components/engine/integration-cli/requirements_unix_test.go
++++ b/components/engine/integration-cli/requirements_unix_test.go
+@@ -37,6 +37,10 @@ func pidsLimit() bool {
+ 	return SysInfo.PidsLimit
+ }
+ 
++func filesLimit() bool {
++	return SysInfo.FilesLimit
++}
++
+ func kernelMemorySupport() bool {
+ 	return testEnv.DaemonInfo.KernelMemory
+ }
+diff --git a/components/engine/pkg/sysinfo/sysinfo.go b/components/engine/pkg/sysinfo/sysinfo.go
+index 0f327d5068..5d9320218c 100644
+--- a/components/engine/pkg/sysinfo/sysinfo.go
++++ b/components/engine/pkg/sysinfo/sysinfo.go
+@@ -15,6 +15,7 @@ type SysInfo struct {
+ 	cgroupBlkioInfo
+ 	cgroupCpusetInfo
+ 	cgroupPids
++	cgroupFiles
+ 
+ 	// Whether IPv4 forwarding is supported or not, if this was disabled, networking will not work
+ 	IPv4ForwardingDisabled bool
+@@ -102,6 +103,11 @@ type cgroupPids struct {
+ 	PidsLimit bool
+ }
+ 
++type cgroupFiles struct {
++	// Whether Files Limit is supported or not
++	FilesLimit bool
++}
++
+ // IsCpusetCpusAvailable returns `true` if the provided string set is contained
+ // in cgroup's cpuset.cpus set, `false` otherwise.
+ // If error is not nil a parsing error occurred.
+diff --git a/components/engine/pkg/sysinfo/sysinfo_linux.go b/components/engine/pkg/sysinfo/sysinfo_linux.go
+index dde5be19bc..c0bf280412 100644
+--- a/components/engine/pkg/sysinfo/sysinfo_linux.go
++++ b/components/engine/pkg/sysinfo/sysinfo_linux.go
+@@ -40,6 +40,7 @@ func New(quiet bool) *SysInfo {
+ 		sysInfo.cgroupBlkioInfo = checkCgroupBlkioInfo(cgMounts, quiet)
+ 		sysInfo.cgroupCpusetInfo = checkCgroupCpusetInfo(cgMounts, quiet)
+ 		sysInfo.cgroupPids = checkCgroupPids(quiet)
++		sysInfo.cgroupFiles = checkCgroupFiles(quiet)
+ 	}
+ 
+ 	_, ok := cgMounts["devices"]
+@@ -240,6 +241,20 @@ func checkCgroupPids(quiet bool) cgroupPids {
+ 	}
+ }
+ 
++// checkCgroupPids reads the files information from the pids cgroup mount point.
++func checkCgroupFiles(quiet bool) cgroupFiles {
++	_, err := cgroups.FindCgroupMountpoint("files")
++	if err != nil {
++		if !quiet {
++			logrus.Warn(err)
++		}
++		return cgroupFiles{}
++	}
++	return cgroupFiles{
++		FilesLimit: true,
++	}
++}
++
+ func cgroupEnabled(mountPoint, name string) bool {
+ 	_, err := os.Stat(path.Join(mountPoint, name))
+ 	return err == nil
+diff --git a/components/engine/vendor/github.com/opencontainers/runtime-spec/Checklist b/components/engine/vendor/github.com/opencontainers/runtime-spec/Checklist
+new file mode 100644
+index 0000000000..5b7ba2fab9
+--- /dev/null
++++ b/components/engine/vendor/github.com/opencontainers/runtime-spec/Checklist
+@@ -0,0 +1 @@
++Add struct LinuxFiles to components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go for supporting --files-limit
+diff --git a/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go b/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
+index f32698cab2..46049b3bfa 100644
+--- a/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
++++ b/components/engine/vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
+@@ -314,6 +314,12 @@ type LinuxPids struct {
+ 	Limit int64 `json:"limit"`
+ }
+ 
++// Files for Linux cgroup 'files' resource management (https://lwn.net/Articles/604129/)
++type Files struct {
++	// Maximum number of open files. Default is "no limit".
++	Limit *int64 `json:"limit,omitempty"`
++}
++
+ // LinuxNetwork identification and priority configuration
+ type LinuxNetwork struct {
+ 	// Set class identifier for container's network packets
+@@ -340,6 +346,8 @@ type LinuxResources struct {
+ 	CPU *LinuxCPU `json:"cpu,omitempty"`
+ 	// Task resource restriction configuration.
+ 	Pids *LinuxPids `json:"pids,omitempty"`
++	// Files resource restriction configuration.
++	Files *Files `json:"files,omitempty"`
+ 	// BlockIO restriction configuration
+ 	BlockIO *LinuxBlockIO `json:"blockIO,omitempty"`
+ 	// Hugetlb limit (in bytes)
+-- 
+2.17.1
+

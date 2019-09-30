@@ -1,0 +1,137 @@
+From 50c51324293064e12e99da9dfbb3554ab1255f51 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 15:30:42 +0800
+Subject: [PATCH 042/111] oci:  Cannot join own pid/ipc namespace
+
+reason: cherry-pick commits to docker-18.09
+
+Change-Id: I34a0d97a4196d509d80d20f262f3fbac555e0745
+Signed-off-by: Yuanhong Peng <pengyuanhong@huawei.com>
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../daemon/container_operations_unix.go       | 20 +++++++++-----
+ components/engine/daemon/oci_linux.go         |  2 +-
+ .../integration-cli/docker_cli_run_test.go    | 27 +++++++++++++++++++
+ 3 files changed, 42 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/daemon/container_operations_unix.go b/components/engine/daemon/container_operations_unix.go
+index 9953c7f3fd..2cc2b2e3cd 100644
+--- a/components/engine/daemon/container_operations_unix.go
++++ b/components/engine/daemon/container_operations_unix.go
+@@ -58,13 +58,17 @@ func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]s
+ 	return env, nil
+ }
+ 
+-func (daemon *Daemon) getIpcContainer(id string) (*container.Container, error) {
+-	errMsg := "can't join IPC of container " + id
++func (daemon *Daemon) getIpcContainer(cc *container.Container) (*container.Container, error) {
++	containerID := cc.HostConfig.IpcMode.Container()
++	errMsg := "can't join IPC of container " + containerID
+ 	// Check the container exists
+-	container, err := daemon.GetContainer(id)
++	container, err := daemon.GetContainer(containerID)
+ 	if err != nil {
+ 		return nil, errors.Wrap(err, errMsg)
+ 	}
++	if container.ID == cc.ID {
++		return nil, fmt.Errorf("cannot join own ipc namespace")
++	}
+ 	// Check the container is running and not restarting
+ 	if err := daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting); err != nil {
+ 		return nil, errors.Wrap(err, errMsg)
+@@ -81,12 +85,16 @@ func (daemon *Daemon) getIpcContainer(id string) (*container.Container, error) {
+ 	return container, nil
+ }
+ 
+-func (daemon *Daemon) getPidContainer(container *container.Container) (*container.Container, error) {
+-	containerID := container.HostConfig.PidMode.Container()
++func (daemon *Daemon) getPidContainer(cc *container.Container) (*container.Container, error) {
++	containerID := cc.HostConfig.PidMode.Container()
+ 	container, err := daemon.GetContainer(containerID)
+ 	if err != nil {
+ 		return nil, errors.Wrapf(err, "cannot join PID of a non running container: %s", containerID)
+ 	}
++	if container.ID == cc.ID {
++		return nil, fmt.Errorf("cannot join own pid namespace")
++	}
++
+ 	return container, daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting)
+ }
+ 
+@@ -109,7 +117,7 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
+ 
+ 	switch {
+ 	case ipcMode.IsContainer():
+-		ic, err := daemon.getIpcContainer(ipcMode.Container())
++		ic, err := daemon.getIpcContainer(c)
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index 884739c07e..f5270bd545 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -256,7 +256,7 @@ func setNamespaces(daemon *Daemon, s *specs.Spec, c *container.Container) error
+ 	switch {
+ 	case ipcMode.IsContainer():
+ 		ns := specs.LinuxNamespace{Type: "ipc"}
+-		ic, err := daemon.getIpcContainer(ipcMode.Container())
++		ic, err := daemon.getIpcContainer(c)
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/components/engine/integration-cli/docker_cli_run_test.go b/components/engine/integration-cli/docker_cli_run_test.go
+index 4f55c05aeb..4a137c6159 100644
+--- a/components/engine/integration-cli/docker_cli_run_test.go
++++ b/components/engine/integration-cli/docker_cli_run_test.go
+@@ -2323,6 +2323,15 @@ func (s *DockerSuite) TestRunModeIpcContainerNotExists(c *check.C) {
+ 	}
+ }
+ 
++func (s *DockerSuite) TestJoinOwnIpcNamespace(c *check.C) {
++	// Not applicable on Windows as uses Unix-specific capabilities
++	testRequires(c, DaemonIsLinux, NotUserNamespace)
++	_, _, err := dockerCmdWithError("run", "-d", "--name", "testipc", "--ipc", "container:testipc", "busybox", "top")
++	if err == nil {
++		c.Fatalf("Join own ipc namespace is not permitted")
++	}
++}
++
+ func (s *DockerSuite) TestRunModeIpcContainerNotRunning(c *check.C) {
+ 	// Not applicable on Windows as uses Unix-specific capabilities
+ 	testRequires(c, SameHostDaemon, DaemonIsLinux)
+@@ -2383,6 +2392,15 @@ func (s *DockerSuite) TestRunModePIDContainerNotRunning(c *check.C) {
+ 	}
+ }
+ 
++func (s *DockerSuite) TestJoinOwnPidNamespace(c *check.C) {
++	// Not applicable on Windows as uses Unix-specific capabilities
++	testRequires(c, DaemonIsLinux)
++	_, _, err := dockerCmdWithError("run", "-d", "--name", "testpid", "--pid", "container:testpid", "busybox", "top")
++	if err == nil {
++		c.Fatalf("Join own pid namespace is not permitted")
++	}
++}
++
+ func (s *DockerSuite) TestRunMountShmMqueueFromHost(c *check.C) {
+ 	// Not applicable on Windows as uses Unix-specific capabilities
+ 	testRequires(c, SameHostDaemon, DaemonIsLinux, NotUserNamespace)
+@@ -2621,6 +2639,15 @@ func (s *DockerSuite) TestRunNetContainerWhichHost(c *check.C) {
+ 	}
+ }
+ 
++func (s *DockerSuite) TestJoinOwnNetNamespace(c *check.C) {
++	// Not applicable on Windows as uses Unix-specific capabilities
++	testRequires(c, DaemonIsLinux, NotUserNamespace)
++	_, _, err := dockerCmdWithError("run", "-d", "--name", "testnet", "--net", "container:testnet", "busybox", "top")
++	if err == nil {
++		c.Fatalf("Join own net namespace is not permitted")
++	}
++}
++
+ func (s *DockerSuite) TestRunAllowPortRangeThroughPublish(c *check.C) {
+ 	// TODO Windows. This may be possible to enable in the future. However,
+ 	// Windows does not currently support --expose, or populate the network
+-- 
+2.17.1
+

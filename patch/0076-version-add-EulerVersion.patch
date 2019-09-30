@@ -1,0 +1,199 @@
+From 22f9a89d9ddcb03aa5b00dc9ad4372f776c5f73b Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Mon, 21 Jan 2019 23:05:47 +0800
+Subject: [PATCH 076/111] version:  add EulerVersion
+
+reason: Add EulerVersion and update-version.sh
+
+Cherry-pick from 17.06 for
+- 030513895 Add EulerVersion
+- 102ee9ddc docker-17: add update-version tool for obs build
+
+Change-Id: I95c9b98bd35e243ce1074fa7dd0d477bdf7dcee9
+Signed-off-by: Lei Jitang <leijitang@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/cli/cli/command/system/version.go     |  4 ++++
+ components/cli/cli/version.go                    |  1 +
+ components/cli/docker.Makefile                   |  3 ++-
+ components/cli/scripts/build/.variables          |  2 ++
+ .../github.com/docker/docker/api/types/types.go  |  1 +
+ components/engine/api/types/types.go             |  1 +
+ components/engine/daemon/info.go                 |  3 ++-
+ components/engine/dockerversion/version_lib.go   |  1 +
+ components/engine/hack/make.sh                   |  1 +
+ components/engine/hack/make/.go-autogen          |  1 +
+ 13 files changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/components/cli/cli/command/system/version.go b/components/cli/cli/command/system/version.go
+index 7593b11b81..c13d135ae4 100644
+--- a/components/cli/cli/command/system/version.go
++++ b/components/cli/cli/command/system/version.go
+@@ -23,6 +23,7 @@ import (
+ var versionTemplate = `{{with .Client -}}
+ Client:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
+  Version:	{{.Version}}
++ EulerVersion:	{{.EulerVersion}}
+  API version:	{{.APIVersion}}{{if ne .APIVersion .DefaultAPIVersion}} (downgraded from {{.DefaultAPIVersion}}){{end}}
+  Go version:	{{.GoVersion}}
+  Git commit:	{{.GitCommit}}
+@@ -38,6 +39,7 @@ Server:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
+  {{$component.Name}}:
+   {{- if eq $component.Name "Engine" }}
+   Version:	{{.Version}}
++  EulerVersion:	{{index .Details "EulerVersion"}}
+   API version:	{{index .Details "ApiVersion"}} (minimum version {{index .Details "MinAPIVersion"}})
+   Go version:	{{index .Details "GoVersion"}}
+   Git commit:	{{index .Details "GitCommit"}}
+@@ -69,6 +71,7 @@ type clientVersion struct {
+ 	Platform struct{ Name string } `json:",omitempty"`
+ 
+ 	Version           string
++	EulerVersion      string
+ 	APIVersion        string `json:"ApiVersion"`
+ 	DefaultAPIVersion string `json:"DefaultAPIVersion,omitempty"`
+ 	GitCommit         string
+@@ -135,6 +138,7 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
+ 		Client: clientVersion{
+ 			Platform:          struct{ Name string }{cli.PlatformName},
+ 			Version:           cli.Version,
++			EulerVersion:      cli.EulerVersion,
+ 			APIVersion:        dockerCli.Client().ClientVersion(),
+ 			DefaultAPIVersion: dockerCli.DefaultVersion(),
+ 			GoVersion:         runtime.Version(),
+diff --git a/components/cli/cli/version.go b/components/cli/cli/version.go
+index c4120b9585..eeab90cad2 100644
+--- a/components/cli/cli/version.go
++++ b/components/cli/cli/version.go
+@@ -5,6 +5,7 @@ package cli
+ var (
+ 	PlatformName = ""
+ 	Version      = "unknown-version"
++	EulerVersion = "unkonwn-version"
+ 	GitCommit    = "unknown-commit"
+ 	BuildTime    = "unknown-buildtime"
+ )
+diff --git a/components/cli/docker.Makefile b/components/cli/docker.Makefile
+index 28819997bc..3284d8ce0a 100644
+--- a/components/cli/docker.Makefile
++++ b/components/cli/docker.Makefile
+@@ -12,7 +12,8 @@ VALIDATE_IMAGE_NAME = docker-cli-shell-validate$(IMAGE_TAG)
+ E2E_IMAGE_NAME = docker-cli-e2e$(IMAGE_TAG)
+ MOUNTS = -v "$(CURDIR)":/go/src/github.com/docker/cli
+ VERSION = $(shell cat VERSION)
+-ENVVARS = -e VERSION=$(VERSION) -e GITCOMMIT -e PLATFORM
++GITCOMMIT = $(shell git rev-parse --short HEAD 2> /dev/null || true)
++ENVVARS = -e VERSION=$(VERSION) -e GITCOMMIT=$(GITCOMMIT) -e PLATFORM
+ 
+ # build docker image (dockerfiles/Dockerfile.build)
+ .PHONY: build_docker_image
+diff --git a/components/cli/scripts/build/.variables b/components/cli/scripts/build/.variables
+index 208f44c316..d50403266e 100755
+--- a/components/cli/scripts/build/.variables
++++ b/components/cli/scripts/build/.variables
+@@ -3,6 +3,7 @@ set -eu
+ 
+ PLATFORM=${PLATFORM:-}
+ VERSION=${VERSION:-"unknown-version"}
++EULERVERSION=${EULERVERSION:-$(cat VERSION-EULER)}
+ GITCOMMIT=${GITCOMMIT:-$(git rev-parse --short HEAD 2> /dev/null || true)}
+ BUILDTIME=${BUILDTIME:-$(date --utc --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')}
+ 
+@@ -17,6 +18,7 @@ export LDFLAGS="\
+     -X \"github.com/docker/cli/cli.GitCommit=${GITCOMMIT}\" \
+     -X \"github.com/docker/cli/cli.BuildTime=${BUILDTIME}\" \
+     -X \"github.com/docker/cli/cli.Version=${VERSION}\" \
++    -X \"github.com/docker/cli/cli.EulerVersion=${EULERVERSION}\" \
+     ${LDFLAGS:-} \
+ "
+ 
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/types.go b/components/cli/vendor/github.com/docker/docker/api/types/types.go
+index 2fb6c5478b..56f556cad7 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/types.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/types.go
+@@ -124,6 +124,7 @@ type Version struct {
+ 	// The following fields are deprecated, they relate to the Engine component and are kept for backwards compatibility
+ 
+ 	Version       string
++	EulerVersion  string
+ 	APIVersion    string `json:"ApiVersion"`
+ 	MinAPIVersion string `json:"MinAPIVersion,omitempty"`
+ 	GitCommit     string
+diff --git a/components/engine/api/types/types.go b/components/engine/api/types/types.go
+index 820d513cbb..78e97daf98 100644
+--- a/components/engine/api/types/types.go
++++ b/components/engine/api/types/types.go
+@@ -125,6 +125,7 @@ type Version struct {
+ 	// The following fields are deprecated, they relate to the Engine component and are kept for backwards compatibility
+ 
+ 	Version       string
++	EulerVersion  string
+ 	APIVersion    string `json:"ApiVersion"`
+ 	MinAPIVersion string `json:"MinAPIVersion,omitempty"`
+ 	GitCommit     string
+diff --git a/components/engine/daemon/info.go b/components/engine/daemon/info.go
+index 523a396643..4acad11b70 100644
+--- a/components/engine/daemon/info.go
++++ b/components/engine/daemon/info.go
+@@ -85,13 +85,13 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
+ // SystemVersion returns version information about the daemon.
+ func (daemon *Daemon) SystemVersion() types.Version {
+ 	kernelVersion := kernelVersion()
+-
+ 	v := types.Version{
+ 		Components: []types.ComponentVersion{
+ 			{
+ 				Name:    "Engine",
+ 				Version: dockerversion.Version,
+ 				Details: map[string]string{
++					"EulerVersion":  dockerversion.EulerVersion,
+ 					"GitCommit":     dockerversion.GitCommit,
+ 					"ApiVersion":    api.DefaultVersion,
+ 					"MinAPIVersion": api.MinVersion,
+@@ -107,6 +107,7 @@ func (daemon *Daemon) SystemVersion() types.Version {
+ 
+ 		// Populate deprecated fields for older clients
+ 		Version:       dockerversion.Version,
++		EulerVersion:  dockerversion.EulerVersion,
+ 		GitCommit:     dockerversion.GitCommit,
+ 		APIVersion:    api.DefaultVersion,
+ 		MinAPIVersion: api.MinVersion,
+diff --git a/components/engine/dockerversion/version_lib.go b/components/engine/dockerversion/version_lib.go
+index 5d9b3fdd2b..84b1339b5b 100644
+--- a/components/engine/dockerversion/version_lib.go
++++ b/components/engine/dockerversion/version_lib.go
+@@ -8,6 +8,7 @@ package dockerversion // import "github.com/docker/docker/dockerversion"
+ const (
+ 	GitCommit             = "library-import"
+ 	Version               = "library-import"
++	EulerVersion          = "library-import"
+ 	BuildTime             = "library-import"
+ 	IAmStatic             = "library-import"
+ 	InitCommitID          = "library-import"
+diff --git a/components/engine/hack/make.sh b/components/engine/hack/make.sh
+index 2f4ece3cdb..fa87d9110f 100755
+--- a/components/engine/hack/make.sh
++++ b/components/engine/hack/make.sh
+@@ -65,6 +65,7 @@ DEFAULT_BUNDLES=(
+ 	cross
+ )
+ 
++VERSION_EULER=$(< ./VERSION-EULER)
+ VERSION=${VERSION:-dev}
+ ! BUILDTIME=$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')
+ if [ "$DOCKER_GITCOMMIT" ]; then
+diff --git a/components/engine/hack/make/.go-autogen b/components/engine/hack/make/.go-autogen
+index ea8a32ff5d..99d45e9cb8 100644
+--- a/components/engine/hack/make/.go-autogen
++++ b/components/engine/hack/make/.go-autogen
+@@ -17,6 +17,7 @@ package dockerversion
+ const (
+ 	GitCommit             string = "$GITCOMMIT"
+ 	Version               string = "$VERSION"
++	EulerVersion          string = "$VERSION_EULER"
+ 	BuildTime             string = "$BUILDTIME"
+ 	IAmStatic             string = "${IAMSTATIC:-true}"
+ 	PlatformName          string = "${PLATFORM}"
+-- 
+2.17.1
+

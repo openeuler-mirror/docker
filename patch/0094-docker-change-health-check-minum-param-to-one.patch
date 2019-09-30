@@ -1,0 +1,88 @@
+From 69edbbf9eca76adf67e2b26ee564b53eaef76aff Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Fri, 1 Feb 2019 19:00:14 +0800
+Subject: [PATCH 094/111] docker:  change health check minum param to
+ one second
+
+reason:change health check minum period to one second, include
+--health-interval, --health-timeout and --health-start-period.
+
+Change-Id: I1ebab75c23edf4f9006142f92894114c5d447f75
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ components/engine/daemon/container.go                | 12 ++++++------
+ .../engine/integration-cli/docker_api_create_test.go |  7 +++----
+ 2 files changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index 06a19bb4c8..6d357421f3 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -421,20 +421,20 @@ func (daemon *Daemon) verifyContainerSettings(platform string, hostConfig *conta
+ 
+ 		// Validate the healthcheck params of Config
+ 		if config.Healthcheck != nil {
+-			if config.Healthcheck.Interval != 0 && config.Healthcheck.Interval < containertypes.MinimumDuration {
+-				return nil, errors.Errorf("Interval in Healthcheck cannot be less than %s", containertypes.MinimumDuration)
++			if config.Healthcheck.Interval != 0 && config.Healthcheck.Interval < time.Second {
++				return nil, errors.Errorf("Interval in Healthcheck cannot be less than one second")
+ 			}
+ 
+-			if config.Healthcheck.Timeout != 0 && config.Healthcheck.Timeout < containertypes.MinimumDuration {
+-				return nil, errors.Errorf("Timeout in Healthcheck cannot be less than %s", containertypes.MinimumDuration)
++			if config.Healthcheck.Timeout != 0 && config.Healthcheck.Timeout < time.Second {
++				return nil, errors.Errorf("Timeout in Healthcheck cannot be less than one second")
+ 			}
+ 
+ 			if config.Healthcheck.Retries < 0 {
+ 				return nil, errors.Errorf("Retries in Healthcheck cannot be negative")
+ 			}
+ 
+-			if config.Healthcheck.StartPeriod != 0 && config.Healthcheck.StartPeriod < containertypes.MinimumDuration {
+-				return nil, errors.Errorf("StartPeriod in Healthcheck cannot be less than %s", containertypes.MinimumDuration)
++			if config.Healthcheck.StartPeriod != 0 && config.Healthcheck.StartPeriod < time.Second {
++				return nil, errors.Errorf("StartPeriod in Healthcheck cannot be less than one second")
+ 			}
+ 		}
+ 	}
+diff --git a/components/engine/integration-cli/docker_api_create_test.go b/components/engine/integration-cli/docker_api_create_test.go
+index 8c7fff477e..1bbc7653b3 100644
+--- a/components/engine/integration-cli/docker_api_create_test.go
++++ b/components/engine/integration-cli/docker_api_create_test.go
+@@ -5,7 +5,6 @@ import (
+ 	"net/http"
+ 	"time"
+ 
+-	"github.com/docker/docker/api/types/container"
+ 	"github.com/docker/docker/api/types/versions"
+ 	"github.com/docker/docker/integration-cli/checker"
+ 	"github.com/docker/docker/internal/test/request"
+@@ -35,7 +34,7 @@ func (s *DockerSuite) TestAPICreateWithInvalidHealthcheckParams(c *check.C) {
+ 	buf, err := request.ReadBody(body)
+ 	c.Assert(err, checker.IsNil)
+ 
+-	expected := fmt.Sprintf("Interval in Healthcheck cannot be less than %s", container.MinimumDuration)
++	expected := fmt.Sprintf("Interval in Healthcheck cannot be less than one second")
+ 	c.Assert(getErrorMessage(c, buf), checker.Contains, expected)
+ 
+ 	// test invalid Interval in Healthcheck: larger than 0s but less than 1ms
+@@ -82,7 +81,7 @@ func (s *DockerSuite) TestAPICreateWithInvalidHealthcheckParams(c *check.C) {
+ 	buf, err = request.ReadBody(body)
+ 	c.Assert(err, checker.IsNil)
+ 
+-	expected = fmt.Sprintf("Timeout in Healthcheck cannot be less than %s", container.MinimumDuration)
++	expected = fmt.Sprintf("Timeout in Healthcheck cannot be less than one second")
+ 	c.Assert(getErrorMessage(c, buf), checker.Contains, expected)
+ 
+ 	// test invalid Retries in Healthcheck: less than 0
+@@ -131,6 +130,6 @@ func (s *DockerSuite) TestAPICreateWithInvalidHealthcheckParams(c *check.C) {
+ 	buf, err = request.ReadBody(body)
+ 	c.Assert(err, checker.IsNil)
+ 
+-	expected = fmt.Sprintf("StartPeriod in Healthcheck cannot be less than %s", container.MinimumDuration)
++	expected = fmt.Sprintf("StartPeriod in Healthcheck cannot be less than one second")
+ 	c.Assert(getErrorMessage(c, buf), checker.Contains, expected)
+ }
+-- 
+2.17.1
+

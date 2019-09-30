@@ -1,0 +1,62 @@
+From 405d10b7df5fa329a7070cb842a8d5e4e46861d6 Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Mon, 18 Feb 2019 22:13:53 +0800
+Subject: [PATCH 103/111] docker:  fix parsing name with /
+
+reason: fix parsing name with /
+Do the error check when using --link option,
+if the alias name and container name is the same, return error
+
+Change-Id: I64c39915d34d79ee8abbba2ebe0e66ad3ad08551
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/engine/daemon/daemon.go                  | 13 +++++++++++++
+ .../engine/integration-cli/docker_cli_links_test.go |  8 ++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index f5d22bb18b..e26494ed68 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -657,8 +657,21 @@ func (daemon *Daemon) parents(c *container.Container) map[string]*container.Cont
+ 	return daemon.linkIndex.parents(c)
+ }
+ 
++func validateAlias(alias string, c *container.Container) error {
++	if !validContainerNamePattern.MatchString(alias) {
++		return fmt.Errorf("Invalid alias name (%s), only %s are allowed", alias, validContainerNameChars)
++	}
++	if alias == c.Config.Hostname {
++		return fmt.Errorf("Invalid alias name (%s), alias is the same to current container's hostname", alias)
++	}
++	return nil
++}
++
+ func (daemon *Daemon) registerLink(parent, child *container.Container, alias string) error {
+ 	fullName := path.Join(parent.Name, alias)
++	if err := validateAlias(alias, parent); err != nil {
++		return err
++	}
+ 	if err := daemon.containersReplica.ReserveName(fullName, child.ID); err != nil {
+ 		if err == container.ErrNameReserved {
+ 			logrus.Warnf("error registering link for %s, to %s, as alias %s, ignoring: %v", parent.ID, child.ID, alias, err)
+diff --git a/components/engine/integration-cli/docker_cli_links_test.go b/components/engine/integration-cli/docker_cli_links_test.go
+index 17b25d7994..9efa1cfbf6 100644
+--- a/components/engine/integration-cli/docker_cli_links_test.go
++++ b/components/engine/integration-cli/docker_cli_links_test.go
+@@ -237,3 +237,11 @@ func (s *DockerSuite) TestLinksMultipleWithSameName(c *check.C) {
+ 	dockerCmd(c, "run", "-d", "--name=upstream-b", "busybox", "top")
+ 	dockerCmd(c, "run", "--link", "upstream-a:upstream", "--link", "upstream-b:upstream", "busybox", "sh", "-c", "ping -c 1 upstream")
+ }
++func (s *DockerSuite) TestLinksAliasCheck(c *check.C) {
++	testRequires(c, DaemonIsLinux, NotUserNamespace)
++	dockerCmd(c, "run", "-d", "--name=linkalias", "busybox", "top")
++	out, _, _ := dockerCmdWithError("run", "-d", "--link=linkalias:hello/sep", "busybox", "top")
++	c.Assert(out, checker.Contains, "Invalid alias name")
++	out, _, _ = dockerCmdWithError("run", "-d", "--hostname=linkhostname", "--link=linkalias:linkhostname", "busybox", "top")
++	c.Assert(out, checker.Contains, "alias is the same to current container's hostname")
++}
+-- 
+2.17.1
+

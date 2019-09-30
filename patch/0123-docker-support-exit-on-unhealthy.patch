@@ -1,0 +1,90 @@
+From 3a9b96e32c226fefee5e410ee9fcf0376bf89f4d Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 5 Jun 2019 18:48:12 +0800
+Subject: [PATCH] docker  support exit on unhealthy
+
+Change-Id: Ie4ae17e976ac2a4981fdb6f891987ffe3ea900a6
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/cli/cli/command/container/opts.go                | 3 +++
+ .../github.com/docker/docker/api/types/container/config.go  | 3 +++
+ components/engine/api/types/container/config.go             | 3 +++
+ components/engine/daemon/health.go                          | 6 ++++++
+ 4 files changed, 15 insertions(+)
+
+diff --git a/components/cli/cli/command/container/opts.go b/components/cli/cli/command/container/opts.go
+index f009cd0ea1..00da8fc570 100644
+--- a/components/cli/cli/command/container/opts.go
++++ b/components/cli/cli/command/container/opts.go
+@@ -121,6 +121,7 @@ type containerOptions struct {
+ 	healthTimeout      time.Duration
+ 	healthStartPeriod  time.Duration
+ 	healthRetries      int
++	healthExitOnUnhealthy bool
+ 	runtime            string
+ 	autoRemove         bool
+ 	init               bool
+@@ -239,6 +240,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
+ 	flags.StringVar(&copts.healthCmd, "health-cmd", "", "Command to run to check health")
+ 	flags.DurationVar(&copts.healthInterval, "health-interval", 0, "Time between running the check (ms|s|m|h) (default 0s)")
+ 	flags.IntVar(&copts.healthRetries, "health-retries", 0, "Consecutive failures needed to report unhealthy")
++	flags.BoolVar(&copts.healthExitOnUnhealthy, "health-exit-on-unhealthy", false, "Shut down a container if it becomes Unhealthy")
+ 	flags.DurationVar(&copts.healthTimeout, "health-timeout", 0, "Maximum time to allow one check to run (ms|s|m|h) (default 0s)")
+ 	flags.DurationVar(&copts.healthStartPeriod, "health-start-period", 0, "Start period for the container to initialize before starting health-retries countdown (ms|s|m|h) (default 0s)")
+ 	flags.SetAnnotation("health-start-period", "version", []string{"1.29"})
+@@ -530,6 +532,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
+ 			Timeout:     copts.healthTimeout,
+ 			StartPeriod: copts.healthStartPeriod,
+ 			Retries:     copts.healthRetries,
++			ExitOnUnhealthy: copts.healthExitOnUnhealthy,
+ 		}
+ 	}
+ 
+diff --git a/components/cli/vendor/github.com/docker/docker/api/types/container/config.go b/components/cli/vendor/github.com/docker/docker/api/types/container/config.go
+index c28f0b101e..4856626be4 100644
+--- a/components/cli/vendor/github.com/docker/docker/api/types/container/config.go
++++ b/components/cli/vendor/github.com/docker/docker/api/types/container/config.go
+@@ -32,6 +32,9 @@ type HealthConfig struct {
+ 	// Retries is the number of consecutive failures needed to consider a container as unhealthy.
+ 	// Zero means inherit.
+ 	Retries int `json:",omitempty"`
++
++	// Shut down a container if it becomes Unhealthy
++	ExitOnUnhealthy bool `json:",omitempty"`
+ }
+ 
+ // Config contains the configuration data about a container.
+diff --git a/components/engine/api/types/container/config.go b/components/engine/api/types/container/config.go
+index c28f0b101e..4856626be4 100644
+--- a/components/engine/api/types/container/config.go
++++ b/components/engine/api/types/container/config.go
+@@ -32,6 +32,9 @@ type HealthConfig struct {
+ 	// Retries is the number of consecutive failures needed to consider a container as unhealthy.
+ 	// Zero means inherit.
+ 	Retries int `json:",omitempty"`
++
++	// Shut down a container if it becomes Unhealthy
++	ExitOnUnhealthy bool `json:",omitempty"`
+ }
+ 
+ // Config contains the configuration data about a container.
+diff --git a/components/engine/daemon/health.go b/components/engine/daemon/health.go
+index ae0d7f8921..80bda66cb3 100644
+--- a/components/engine/daemon/health.go
++++ b/components/engine/daemon/health.go
+@@ -241,6 +241,12 @@ func monitor(d *Daemon, c *container.Container, stop chan struct{}, probe probe)
+ 				// signal and we don't want dying probes to pile up).
+ 				<-results
+ 			}
++			if c.State.Health.Status() == types.Unhealthy &&
++				c.Config.Healthcheck.ExitOnUnhealthy == true {
++				d.Kill(c)
++				logrus.Debugf("Shut down container %s because of unhealthy", c.ID)
++				return
++			}
+ 		}
+ 	}
+ }
+-- 
+2.17.1
+

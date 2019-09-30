@@ -1,0 +1,90 @@
+From 4e614995fea775779078f1903fc45bc89e2afe4e Mon Sep 17 00:00:00 2001
+Date: Wed, 26 Jun 2019 12:00:39 +0800
+Subject: [PATCH] docker:  Fixed "docker ps" and "docker inspect"
+ status inconsistency.
+
+reason: fixed "docker ps" and "docker inspect" status inconsistency.
+The SaveFlag is marked when toDisk is failed. Using this flag to
+retrycheckpoint.
+
+Change-Id: I9ea160233043964e48ea0ff2f384f64bac921312
+Signed-off-by: panwenxiang <panwenxiang@huawei.com>
+---
+ components/engine/container/container.go | 21 +++++++++++++++++++++
+ components/engine/daemon/stop.go         |  3 +++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index 02adc20..c194220 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -11,6 +11,7 @@ import (
+ 	"runtime"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"syscall"
+ 	"time"
+ 
+@@ -57,6 +58,12 @@ type ExitStatus struct {
+ 	ExitedAt time.Time
+ }
+ 
++const (
++	SaveSuccess = iota
++	SaveFailed
++	SavePending
++)
++
+ // Container holds the structure defining a container object.
+ type Container struct {
+ 	StreamConfig *stream.Config
+@@ -109,6 +116,7 @@ type Container struct {
+ 	// Fields here are specific to Windows
+ 	NetworkSharedContainerID string   `json:"-"`
+ 	SharedEndpointList       []string `json:"-"`
++	SaveFlag                 int32
+ }
+ 
+ // NewBaseContainer creates a new container with its
+@@ -194,10 +202,23 @@ func (container *Container) toDisk() (*Container, error) {
+ func (container *Container) CheckpointTo(store ViewDB) error {
+ 	deepCopy, err := container.toDisk()
+ 	if err != nil {
++		atomic.StoreInt32(&container.SaveFlag, SaveFailed)
+ 		return err
+ 	}
+ 	return store.Save(deepCopy)
+ }
++func (container *Container) RetryCheckPoint(store ViewDB) error {
++	if atomic.CompareAndSwapInt32(&container.SaveFlag, SaveFailed, SavePending) {
++		container.Lock()
++		defer container.Unlock()
++		err := container.CheckpointTo(store)
++		if err != nil {
++			return err
++		}
++		atomic.StoreInt32(&container.SaveFlag, SaveSuccess)
++	}
++	return nil
++}
+ 
+ // readHostConfig reads the host configuration from disk for the container.
+ func (container *Container) readHostConfig() error {
+diff --git a/components/engine/daemon/stop.go b/components/engine/daemon/stop.go
+index 3c4cd76..40bc36d 100644
+--- a/components/engine/daemon/stop.go
++++ b/components/engine/daemon/stop.go
+@@ -23,6 +23,9 @@ func (daemon *Daemon) ContainerStop(name string, timeout *int) error {
+ 	if err != nil {
+ 		return err
+ 	}
++	defer func() {
++		go container.RetryCheckPoint(daemon.containersReplica)
++	}()
+ 	if !container.IsRunning() {
+ 		return containerNotModifiedError{running: false}
+ 	}
+-- 
+2.1.3
+

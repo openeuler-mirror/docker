@@ -1,0 +1,194 @@
+From 568c9501d56ccff1806253f9e2289fdd5c002231 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Thu, 17 Jan 2019 20:03:14 +0800
+Subject: [PATCH 052/111] docker:  Lock the RWLayer while
+ committing/exporting
+
+reason:Add a rw mutex to `mountLayer/roLayer/emptyLayer` and introduce
+new methods `RLockRWLayer()` and `RUnlockRWLayer()` to `RWLayer`.
+Now the rw layer of the container would be locked to block removal of
+that layer.
+
+Cherry-pick from docker 1.11.2:
+- 2923a77c Lock the RWLayer while committing/exporting
+
+Change-Id: I11d6dcb60a23fe3516cebaed36d19aabaa863769
+Signed-off-by: Yuanhong Peng <pengyuanhong@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/daemon/commit.go       |  2 ++
+ components/engine/daemon/export.go       |  2 ++
+ components/engine/layer/empty.go         | 13 ++++++++++++-
+ components/engine/layer/layer.go         |  7 +++++++
+ components/engine/layer/layer_store.go   |  2 ++
+ components/engine/layer/mounted_layer.go | 10 ++++++++++
+ components/engine/layer/ro_layer.go      | 10 ++++++++++
+ 7 files changed, 45 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/commit.go b/components/engine/daemon/commit.go
+index 0f6f440514..fc7d2782ef 100644
+--- a/components/engine/daemon/commit.go
++++ b/components/engine/daemon/commit.go
+@@ -155,6 +155,8 @@ func (daemon *Daemon) CreateImageFromContainer(name string, c *backend.CreateIma
+ 		return "", err
+ 	}
+ 
++	container.RWLayer.RLockRWLayer()
++	defer container.RWLayer.RUnlockRWLayer()
+ 	id, err := daemon.imageService.CommitImage(backend.CommitConfig{
+ 		Author:              c.Author,
+ 		Comment:             c.Comment,
+diff --git a/components/engine/daemon/export.go b/components/engine/daemon/export.go
+index 27bc35967d..ebd2d75f40 100644
+--- a/components/engine/daemon/export.go
++++ b/components/engine/daemon/export.go
+@@ -34,6 +34,8 @@ func (daemon *Daemon) ContainerExport(name string, out io.Writer) error {
+ 		return errdefs.Conflict(err)
+ 	}
+ 
++	container.RWLayer.RLockRWLayer()
++	defer container.RWLayer.RUnlockRWLayer()
+ 	data, err := daemon.containerExport(container)
+ 	if err != nil {
+ 		return fmt.Errorf("Error exporting container %s: %v", name, err)
+diff --git a/components/engine/layer/empty.go b/components/engine/layer/empty.go
+index c81c702140..16a49a7abd 100644
+--- a/components/engine/layer/empty.go
++++ b/components/engine/layer/empty.go
+@@ -6,13 +6,16 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"io/ioutil"
++	"sync"
+ )
+ 
+ // DigestSHA256EmptyTar is the canonical sha256 digest of empty tar file -
+ // (1024 NULL bytes)
+ const DigestSHA256EmptyTar = DiffID("sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef")
+ 
+-type emptyLayer struct{}
++type emptyLayer struct {
++	sync.RWMutex
++}
+ 
+ // EmptyLayer is a layer that corresponds to empty tar.
+ var EmptyLayer = &emptyLayer{}
+@@ -55,6 +58,14 @@ func (el *emptyLayer) Metadata() (map[string]string, error) {
+ 	return make(map[string]string), nil
+ }
+ 
++func (el *emptyLayer) RLockRWLayer() {
++	el.RLock()
++}
++
++func (el *emptyLayer) RUnlockRWLayer() {
++	el.RUnlock()
++}
++
+ // IsEmpty returns true if the layer is an EmptyLayer
+ func IsEmpty(diffID DiffID) bool {
+ 	return diffID == DigestSHA256EmptyTar
+diff --git a/components/engine/layer/layer.go b/components/engine/layer/layer.go
+index cb13c98d0b..e35a13135b 100644
+--- a/components/engine/layer/layer.go
++++ b/components/engine/layer/layer.go
+@@ -145,6 +145,13 @@ type RWLayer interface {
+ 
+ 	// Metadata returns the low level metadata for the mutable layer
+ 	Metadata() (map[string]string, error)
++
++	// RLockRWLayer locks the RWLayer to block unmounting/removal
++	// of that layer
++	RLockRWLayer()
++
++	// RUnlockRWLayer unlocks the RWLayer
++	RUnlockRWLayer()
+ }
+ 
+ // Metadata holds information about a
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index f22e9c666c..7c80a29645 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -666,6 +666,8 @@ func (ls *layerStore) ReleaseRWLayer(l RWLayer) ([]Metadata, error) {
+ 		return []Metadata{}, nil
+ 	}
+ 
++	m.Lock()
++	defer m.Unlock()
+ 	if err := m.deleteReference(l); err != nil {
+ 		return nil, err
+ 	}
+diff --git a/components/engine/layer/mounted_layer.go b/components/engine/layer/mounted_layer.go
+index d6858c662c..66711d6cf7 100644
+--- a/components/engine/layer/mounted_layer.go
++++ b/components/engine/layer/mounted_layer.go
+@@ -2,6 +2,7 @@ package layer // import "github.com/docker/docker/layer"
+ 
+ import (
+ 	"io"
++	"sync"
+ 
+ 	"github.com/docker/docker/pkg/archive"
+ 	"github.com/docker/docker/pkg/containerfs"
+@@ -16,6 +17,7 @@ type mountedLayer struct {
+ 	layerStore *layerStore
+ 
+ 	references map[RWLayer]*referencedRWLayer
++	sync.RWMutex
+ }
+ 
+ func (ml *mountedLayer) cacheParent() string {
+@@ -58,6 +60,14 @@ func (ml *mountedLayer) Metadata() (map[string]string, error) {
+ 	return ml.layerStore.driver.GetMetadata(ml.mountID)
+ }
+ 
++func (ml *mountedLayer) RLockRWLayer() {
++	ml.RLock()
++}
++
++func (ml *mountedLayer) RUnlockRWLayer() {
++	ml.RUnlock()
++}
++
+ func (ml *mountedLayer) getReference() RWLayer {
+ 	ref := &referencedRWLayer{
+ 		mountedLayer: ml,
+diff --git a/components/engine/layer/ro_layer.go b/components/engine/layer/ro_layer.go
+index 3555e8b027..59bcf17d18 100644
+--- a/components/engine/layer/ro_layer.go
++++ b/components/engine/layer/ro_layer.go
+@@ -3,6 +3,7 @@ package layer // import "github.com/docker/docker/layer"
+ import (
+ 	"fmt"
+ 	"io"
++	"sync"
+ 
+ 	"github.com/docker/distribution"
+ 	"github.com/opencontainers/go-digest"
+@@ -19,6 +20,7 @@ type roLayer struct {
+ 
+ 	referenceCount int
+ 	references     map[Layer]struct{}
++	sync.RWMutex
+ }
+ 
+ // TarStream for roLayer guarantees that the data that is produced is the exact
+@@ -92,6 +94,14 @@ func (rl *roLayer) Metadata() (map[string]string, error) {
+ 	return rl.layerStore.driver.GetMetadata(rl.cacheID)
+ }
+ 
++func (rl *roLayer) RLockRWLayer() {
++	rl.RLock()
++}
++
++func (rl *roLayer) RUnlockRWLayer() {
++	rl.RUnlock()
++}
++
+ type referencedCacheLayer struct {
+ 	*roLayer
+ }
+-- 
+2.17.1
+

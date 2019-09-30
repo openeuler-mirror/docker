@@ -1,0 +1,39 @@
+From 1564b7d772b69da0ba7f6814af2fc094def9d2fd Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 23 Jan 2019 11:07:12 +0800
+Subject: [PATCH 079/111] rwlayer:  fix deadlock for docker
+ commit/export
+
+reason: this commit avoid deadlock while del reference count.
+
+Change-Id: I2627752ed38c7bb9d789f4604acd43d130bcb926
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/layer/layer_store.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index cbb1ee4a19..553b098dfd 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -680,8 +680,6 @@ func (ls *layerStore) ReleaseRWLayer(l RWLayer) ([]Metadata, error) {
+ 		return []Metadata{}, nil
+ 	}
+ 
+-	m.Lock()
+-	defer m.Unlock()
+ 	if err := m.deleteReference(l); err != nil {
+ 		return nil, err
+ 	}
+@@ -690,6 +688,8 @@ func (ls *layerStore) ReleaseRWLayer(l RWLayer) ([]Metadata, error) {
+ 		return []Metadata{}, nil
+ 	}
+ 
++	m.Lock()
++	defer m.Unlock()
+ 	if err := ls.driver.Remove(m.mountID); err != nil {
+ 		logrus.Errorf("Error removing mounted layer %s: %s", m.name, err)
+ 		m.retakeReference(l)
+-- 
+2.17.1
+

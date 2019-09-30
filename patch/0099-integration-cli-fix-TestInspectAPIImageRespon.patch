@@ -1,0 +1,30 @@
+From b7d540ff87543e02f4d6271afe66edb7aa88477a Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 15 Feb 2019 15:26:01 +0800
+Subject: [PATCH 099/111] integration-cli: fix
+ TestInspectAPIImageResponse
+
+reason:For we tag busybox:glibc before, the tag number will change
+in this testcase. So we cancel the action of checking tag number.
+
+Change-Id: Ib7bf6274d8ca05cc5cbbe3ddd341676b64bb809e
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/integration-cli/docker_api_inspect_test.go  | 1 -
+ 5 files changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/integration-cli/docker_api_inspect_test.go b/components/engine/integration-cli/docker_api_inspect_test.go
+index 68055b6c14..82d1b19606 100644
+--- a/components/engine/integration-cli/docker_api_inspect_test.go
++++ b/components/engine/integration-cli/docker_api_inspect_test.go
+@@ -114,7 +114,6 @@ func (s *DockerSuite) TestInspectAPIImageResponse(c *check.C) {
+ 	imageJSON, _, err := cli.ImageInspectWithRaw(context.Background(), "busybox")
+ 	c.Assert(err, checker.IsNil)
+ 
+-	c.Assert(imageJSON.RepoTags, checker.HasLen, 2)
+ 	assert.Check(c, is.Contains(imageJSON.RepoTags, "busybox:latest"))
+ 	assert.Check(c, is.Contains(imageJSON.RepoTags, "busybox:mytag"))
+ }
+-- 
+2.17.1
+

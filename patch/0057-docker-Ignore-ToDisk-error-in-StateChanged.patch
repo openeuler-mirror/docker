@@ -1,0 +1,55 @@
+From 241fc5d726e63e995d3518b734e18efff76284ac Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 18 Jan 2019 11:07:06 +0800
+Subject: [PATCH 057/111] docker:  Ignore ToDisk error in StateChanged
+
+reason:If container is started normally, but failed to save
+    state to disk due to error "no space left on device",
+    then container can not be stopped, because container's
+    infomation in libcontainerd is cleaned up when error
+    occurred(so it can not process event 'exit').
+
+    We can ignore ToDisk error in StateChanged, it only
+    change status of container. Status is correct if docker
+    daemon not restart, because right status exists in memory.
+    If docker daemon restart, it will restore these status
+    using status of containerd, so status is also correct.
+
+    This fix can break consistency of status in memory and
+    disk, but considering there is no space in disk, it is
+    not a big problem in this situation. Status in disk can
+    recover if disk have space and if ToDisk is written
+    again(for example, status changed).
+
+    Fix issuse #322
+
+Cherry-pick from docker 1.11.2:
+- 5eb9015 Ignore ToDisk error in StateChanged
+
+Change-Id: Ifbdbffac06d1d739b03ea13962fb2d1fde7b5b3e
+Signed-off-by: Fengtu Wang <wangfengtu@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/daemon/monitor.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index 9b4452d7ef..807cdcaa89 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -154,7 +154,11 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 			daemon.initHealthMonitor(c)
+ 
+ 			if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+-				return err
++				// If return err, container can not be stopped, see issue #322 for detail.
++				// Ignore error is safe, because if daemon not restart, status in memory is
++				// correct, and if daemon restart, it will restore status using status in
++				// containerd, so status in memory is also correct.
++				logrus.Debugf("Set status %v to disk failed: %v", e, err)
+ 			}
+ 			daemon.LogContainerEvent(c, "start")
+ 		}
+-- 
+2.17.1
+

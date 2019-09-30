@@ -1,0 +1,36 @@
+From 7eb6d78447ed19a19c57331cb63e58097d29caeb Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Tue, 8 Jan 2019 18:19:16 +0800
+Subject: [PATCH 048/111] docker:  check metadata when load layer
+
+reason:check metadata when load layer
+
+Cherry-pick from docker 1.11.2:
+- 41795d7 check metadata when load layer
+
+Change-Id: Ia1734172a33d0ebe29ddb4b76d207da2981a137a
+Signed-off-by: Liu Hua <sdu.liu@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/layer/layer_store.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index 5decb0bdce..f22e9c666c 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -193,6 +193,11 @@ func (ls *layerStore) loadLayer(layer ChainID) (l *roLayer, err error) {
+ 			return nil, err
+ 		}
+ 		cl.parent = p
++	} else {
++		_, err := ls.driver.GetMetadata(cacheID)
++		if err != nil {
++			return nil, fmt.Errorf("cacheID %s for layer %s does not have metadata ", cacheID, layer)
++		}
+ 	}
+ 
+ 	ls.layerMap[cl.chainID] = cl
+-- 
+2.17.1
+

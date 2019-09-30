@@ -1,0 +1,54 @@
+From 634d7c920176c726b8d32d8aee50c8073f4892a3 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sun, 20 Jan 2019 15:35:57 +0800
+Subject: [PATCH 068/111] pause:  fix docker stop stuck on paused
+ container
+
+reason: docker-18.09 support docker stop while container is paused.
+ref 7aed75f09c * Allow stopping of paused container.
+
+now docker function is moved to docker, so we still have to check
+container paused status.
+
+Change-Id: I60731c76808abb5a76daf96c2aba656d73a87e96
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/kill.go    | 5 +++++
+ components/engine/daemon/unpause.go | 5 +++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index 3e6457e952..5b2e497604 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -66,6 +66,11 @@ func (daemon *Daemon) killWithSignal(container *containerpkg.Container, sig int)
+ 
+ 	daemon.stopHealthchecks(container)
+ 
++	// We could unpause the container for them rather than returning this error
++	if container.Paused {
++		return fmt.Errorf("Container %s is paused. Unpause the container before stopping or killing", container.ID)
++	}
++
+ 	if !container.Running {
+ 		return errNotRunning(container.ID)
+ 	}
+diff --git a/components/engine/daemon/unpause.go b/components/engine/daemon/unpause.go
+index 290d2b1d0c..2d3c056566 100644
+--- a/components/engine/daemon/unpause.go
++++ b/components/engine/daemon/unpause.go
+@@ -23,6 +23,11 @@ func (daemon *Daemon) containerUnpause(container *container.Container) error {
+ 	container.Lock()
+ 	defer container.Unlock()
+ 
++	// We cannot unpause the container which is not running
++	if !container.Running {
++		return fmt.Errorf("Container %s is not running", container.ID)
++	}
++
+ 	// We cannot unpause the container which is not paused
+ 	if !container.Paused {
+ 		return fmt.Errorf("Container %s is not paused", container.ID)
+-- 
+2.17.1
+

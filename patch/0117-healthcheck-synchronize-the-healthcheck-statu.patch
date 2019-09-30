@@ -1,0 +1,34 @@
+From c91cf6bd930293e4eadcd2a20c704b589ab0b371 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Thu, 18 Apr 2019 16:04:18 +0800
+Subject: [PATCH] healthcheck: synchronize the healthcheck status of
+ containers when restart daemon
+
+Change-Id: I6bcced3c69deb9e1a88fff229f344e4ab28f80b2
+---
+ components/engine/daemon/daemon.go | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 84a28df..041e714 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -427,6 +427,15 @@ func (daemon *Daemon) restore() error {
+ 					c.Unlock()
+ 				}
+ 
++				if getProbe(c) != nil {
++					c.Lock()
++					if err := c.CheckpointTo(daemon.containersReplica); err != nil {
++						logrus.WithError(err).WithField("container", c.ID).
++							Error("Failed to checkpoint container state")
++					}
++					c.Unlock()
++				}
++
+ 				// we call Mount and then Unmount to get BaseFs of the container
+ 				if err := daemon.Mount(c); err != nil {
+ 					// The mount is unlikely to fail. However, in case mount fails
+-- 
+2.7.4.3
+

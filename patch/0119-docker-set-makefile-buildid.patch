@@ -1,0 +1,41 @@
+From 66e09ef9a29c4a24ca7771fa120cd35b0769a70d Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Tue, 23 Apr 2019 12:28:40 +0800
+Subject: [PATCH] docker:  set makefile buildid
+
+reason: set makefile buildid
+
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/cli/scripts/build/dynbinary | 2 +-
+ components/engine/hack/make/.binary    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/cli/scripts/build/dynbinary b/components/cli/scripts/build/dynbinary
+index db91da1..2442166 100755
+--- a/components/cli/scripts/build/dynbinary
++++ b/components/cli/scripts/build/dynbinary
+@@ -14,6 +14,6 @@ BEP_DIR=/tmp/docker-build-bep
+ BEP_FLAGS="-tmpdir=$BEP_DIR"
+ mkdir -p $BEP_DIR
+ 
+-go build -o "${TARGET}" -tags pkcs11 --ldflags " -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
++go build -o "${TARGET}" -tags pkcs11 --ldflags " -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
+ 
+ ln -sf "$(basename "${TARGET}")" build/docker
+diff --git a/components/engine/hack/make/.binary b/components/engine/hack/make/.binary
+index 578e8ae..f76b6f7 100755
+--- a/components/engine/hack/make/.binary
++++ b/components/engine/hack/make/.binary
+@@ -67,7 +67,7 @@ go build \
+ 	-o "$DEST/$BINARY_FULLNAME" \
+ 	"${BUILDFLAGS[@]}" \
+ 	-ldflags "
+-		-extldflags=-zrelro -extldflags=-znow $BEP_FLAGS
++		-buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS
+ 		$LDFLAGS
+ 		$LDFLAGS_STATIC_DOCKER
+ 		$DOCKER_LDFLAGS
+-- 
+1.8.3.1
+

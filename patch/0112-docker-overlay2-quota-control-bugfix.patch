@@ -1,0 +1,46 @@
+From 3e057e395eae95686693584aff1e5236e30ff437 Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Tue, 5 Mar 2019 22:39:26 +0800
+Subject: [PATCH] docker:  overlay2 quota control bugfix
+
+reason:overlay2 quota control bugfix.
+
+Change-Id: I0e016fdb7619e8213d92c6eb2d5ba67ab606968e
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ .../engine/daemon/graphdriver/overlay2/overlay.go      | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 7fd3fab..a755c86 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -452,15 +452,19 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 		}
+ 
+ 		if driver.options.quota.Size > 0 {
+-			// Set container disk quota limit
+-			if err := d.quotaCtl.SetQuota(dir, driver.options.quota); err != nil {
+-				return err
++			if d.quotaCtl != nil {
++				// Set container disk quota limit
++				if err := d.quotaCtl.SetQuota(dir, driver.options.quota); err != nil {
++					return err
++				}
+ 			}
+ 		}
+ 	} else if d.options.quota.Size > 0 {
+-		// docker run not specified quota size, but dockerd does, so limits it also
+-		if err := d.quotaCtl.SetQuota(dir, d.options.quota); err != nil {
+-			return err
++		if d.quotaCtl != nil {
++			// docker run not specified quota size, but dockerd does, so limits it also
++			if err := d.quotaCtl.SetQuota(dir, d.options.quota); err != nil {
++				return err
++			}
+ 		}
+ 	}
+ 
+-- 
+1.8.3.1
+

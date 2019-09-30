@@ -1,0 +1,66 @@
+From 6da7401bff6b59e59f04323fcf2f88115f38ede8 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 16:33:11 +0800
+Subject: [PATCH 031/111] restart: Incase deadlock when kill the docker
+ CLI and restart
+
+reason: cherry-pick commits to docker-18.09
+
+the docker daemon is in created stage and last long time, then kill
+the docker cli and restart docker at the same time, the restart stage will trylock,
+because the created stage already locked.
+
+cherry-pick from 1.11.2: 3082432
+
+the testcase testCE_container_resourced_cpuiso_ABN.023.sh
+
+    current_dir=$(cd `dirname $0` && pwd)
+    source ${COMMON_DIR}/commonlib.sh
+    source ${current_dir}/../common/container_resourced_commonlib.sh
+    resource_managerd_env
+
+    work_dir=`mktemp -d /tmp/testCE_container_resourced_cpuiso_ABN_005.XXXX`
+    bind_cpu=1
+    resource_pid=`ps axu |grep resource-managerd |grep -v grep|awk '{print $2}'`
+    service container-resourced stop
+    service container-resourced start & kill -9 $!
+    container_id=`timeout 10 docker run -itd --hook-spec /etc/docker/resource-hook.json --cpuset-cpus $bind_cpu -e ISOLATION_CORES=$bind_cpu $ubuntu_image bash &`
+    timeout 10 docker restart $container_id
+    fn_check_result_noeq $? 0
+    resource_managerd_env
+    docker restart $container_id
+    fn_check_result $? 0
+    test_cpuset $container_id
+    docker rm -f $container_id
+    rm -rf $work_dir
+    kill_resource_managerd
+    exit $exit_flag
+Conflicts:
+        daemon/restart.go
+
+Change-Id: I571f109dc07a7e76df40c544008a97cd497ef8bb
+Signed-off-by: panwenxiang <panwenxiang@huawei.com>
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/engine/daemon/restart.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/restart.go b/components/engine/daemon/restart.go
+index 0f06dea267..bae665f76b 100644
+--- a/components/engine/daemon/restart.go
++++ b/components/engine/daemon/restart.go
+@@ -41,7 +41,10 @@ func (daemon *Daemon) containerRestart(container *container.Container, seconds i
+ 		defer daemon.Unmount(container)
+ 	}
+ 
+-	if container.IsRunning() {
++	if container.RemovalInProgress || container.Dead {
++		return fmt.Errorf("can't restart a container which is dead or marked for removal")
++	}
++	if container.Running {
+ 		// set AutoRemove flag to false before stop so the container won't be
+ 		// removed during restart process
+ 		autoRemove := container.HostConfig.AutoRemove
+-- 
+2.17.1
+

@@ -1,0 +1,34 @@
+From 9ef1eaf3c58ec9474ae717c9dd118af347cbd33f Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 19 Jun 2019 23:53:48 +0800
+Subject: [PATCH] docker:  fix docker pull 406 error on some registry
+
+Change-Id: I7047c2cd4f59167fa692c333bda89d224bf84147
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../engine/vendor/github.com/docker/distribution/manifests.go   | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/components/engine/vendor/github.com/docker/distribution/manifests.go b/components/engine/vendor/github.com/docker/distribution/manifests.go
+index 1816baea1d..fb07c92eb5 100644
+--- a/components/engine/vendor/github.com/docker/distribution/manifests.go
++++ b/components/engine/vendor/github.com/docker/distribution/manifests.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"mime"
++	"sort"
+ 
+ 	"github.com/opencontainers/go-digest"
+ )
+@@ -81,6 +82,7 @@ func ManifestMediaTypes() (mediaTypes []string) {
+ 			mediaTypes = append(mediaTypes, t)
+ 		}
+ 	}
++	sort.Strings(mediaTypes)
+ 	return
+ }
+ 
+-- 
+2.17.1
+

@@ -1,0 +1,224 @@
+From 72f9e0c4d0d907a036d25c9dfeea9c0baddddc3e Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 10:37:50 +0800
+Subject: [PATCH 033/111] devmapper:  Fix devicemapper issue: power off
+ the VM while loading a image, couldn't load it after VM bootup
+
+reason: cherry-pick commits to docker-18.09
+
+cherry-pick from 28991928c4 | * Fix devicemapper issue: power off the VM while
+loading a image, couldn't load it after VM bootup
+
+Issue Description:
+While running loading image test, power off or restart the VM, and then
+there are
+some chances that we can not load the image. And "Error running
+deviceCreate (createSnapDevice) dm_task_run failed" will be reported.
+
+Reproduce Steps:
+> 1. run  `docker load -i xxx.tar`
+> 2. virsh restart VM; # restart the VM.
+> 3. After startup, run `docker load -i xxx.tar`, will fail to import
+> the image
+
+Analysis:
+From syslog, we found that docker was executing "Umount Device" then VM
+powered restart. And found
+two failure reasons:
+> 1. Rollback operation only remove the device on DM thin pool, not
+> remove the device in memory
+> 2. TransactionData or metadata not flushed to Disk.
+
+Solution:
+> 1. Rollback operation for DM, should remove the devices cache in DM
+> driver.
+> 2. When restore layers and images, check whether the device exists in
+> graphdriver.
+     If desen't, remove the layer( and the metadata) and do not load the
+image.
+
+Issue link:
+    #203
+
+Signed-off-by: Wentao Zhang <zhangwentao234@huawei.com>
+
+Conflicts:
+	image/store.go
+	layer/layer_store.go
+
+Change-Id: If3bfbf0d0ed8f950cfd5934fc25fac892481275c
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../daemon/graphdriver/devmapper/deviceset.go | 38 +++++++------------
+ components/engine/image/store.go              |  3 +-
+ components/engine/layer/layer_store.go        | 15 +++++++-
+ 3 files changed, 28 insertions(+), 28 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index af53cf83e6..0675b2eacd 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -6,7 +6,6 @@ import (
+ 	"bufio"
+ 	"encoding/json"
+ 	"fmt"
+-	"io"
+ 	"io/ioutil"
+ 	"os"
+ 	"os/exec"
+@@ -23,6 +22,7 @@ import (
+ 	"github.com/docker/docker/pkg/devicemapper"
+ 	"github.com/docker/docker/pkg/dmesg"
+ 	"github.com/docker/docker/pkg/idtools"
++	"github.com/docker/docker/pkg/ioutils"
+ 	"github.com/docker/docker/pkg/loopback"
+ 	"github.com/docker/docker/pkg/mount"
+ 	"github.com/docker/docker/pkg/parsers"
+@@ -306,6 +306,10 @@ func (devices *DeviceSet) ensureImage(name string, size int64) (string, error) {
+ 	return filename, nil
+ }
+ 
++func (devices *DeviceSet) removeDeviceMap(hash string) {
++	delete(devices.Devices, hash)
++}
++
+ func (devices *DeviceSet) allocateTransactionID() uint64 {
+ 	devices.OpenTransactionID = devices.TransactionID + 1
+ 	return devices.OpenTransactionID
+@@ -328,28 +332,9 @@ func (devices *DeviceSet) removeMetadata(info *devInfo) error {
+ 
+ // Given json data and file path, write it to disk
+ func (devices *DeviceSet) writeMetaFile(jsonData []byte, filePath string) error {
+-	tmpFile, err := ioutil.TempFile(devices.metadataDir(), ".tmp")
+-	if err != nil {
+-		return fmt.Errorf("devmapper: Error creating metadata file: %s", err)
+-	}
+-
+-	n, err := tmpFile.Write(jsonData)
+-	if err != nil {
+-		return fmt.Errorf("devmapper: Error writing metadata to %s: %s", tmpFile.Name(), err)
+-	}
+-	if n < len(jsonData) {
+-		return io.ErrShortWrite
++	if err := ioutils.AtomicWriteFile(filePath, jsonData, 0600); err != nil {
++		return fmt.Errorf("devmapper: Error writing metadata to %s: %s", filePath, err)
+ 	}
+-	if err := tmpFile.Sync(); err != nil {
+-		return fmt.Errorf("devmapper: Error syncing metadata file %s: %s", tmpFile.Name(), err)
+-	}
+-	if err := tmpFile.Close(); err != nil {
+-		return fmt.Errorf("devmapper: Error closing metadata file %s: %s", tmpFile.Name(), err)
+-	}
+-	if err := os.Rename(tmpFile.Name(), filePath); err != nil {
+-		return fmt.Errorf("devmapper: Error committing metadata file %s: %s", tmpFile.Name(), err)
+-	}
+-
+ 	return nil
+ }
+ 
+@@ -483,7 +468,7 @@ func (devices *DeviceSet) unregisterDevice(hash string) error {
+ 		Hash: hash,
+ 	}
+ 
+-	delete(devices.Devices, hash)
++	devices.removeDeviceMap(hash)
+ 
+ 	if err := devices.removeMetadata(info); err != nil {
+ 		logrus.WithField("storage-driver", "devicemapper").Debugf("Error removing metadata: %s", err)
+@@ -509,7 +494,7 @@ func (devices *DeviceSet) registerDevice(id int, hash string, size uint64, trans
+ 
+ 	if err := devices.saveMetadata(info); err != nil {
+ 		// Try to remove unused device
+-		delete(devices.Devices, hash)
++		devices.removeDeviceMap(hash)
+ 		return nil, err
+ 	}
+ 
+@@ -1173,7 +1158,7 @@ func (devices *DeviceSet) checkGrowBaseDeviceFS(info *devInfo) error {
+ 
+ 	if err := devices.saveMetadata(info); err != nil {
+ 		// Try to remove unused device
+-		delete(devices.Devices, info.Hash)
++		devices.removeDeviceMap(info.Hash)
+ 		return err
+ 	}
+ 
+@@ -1401,6 +1386,8 @@ func (devices *DeviceSet) rollbackTransaction() error {
+ 		devices.markDeviceIDFree(devices.DeviceID)
+ 	}
+ 
++	devices.removeDeviceMap(dinfo.Hash)
++
+ 	if err := devices.removeTransactionMetaData(); err != nil {
+ 		logger.Errorf("Unable to remove transaction meta file %s: %s", devices.transactionMetaFile(), err)
+ 	}
+@@ -1482,6 +1469,7 @@ func (devices *DeviceSet) closeTransaction() error {
+ 		logrus.WithField("storage-driver", "devicemapper").Debug("Failed to close Transaction")
+ 		return err
+ 	}
++
+ 	return nil
+ }
+ 
+diff --git a/components/engine/image/store.go b/components/engine/image/store.go
+index 1a8a8a2451..b078a2627a 100644
+--- a/components/engine/image/store.go
++++ b/components/engine/image/store.go
+@@ -81,8 +81,9 @@ func (is *store) restore() error {
+ 			}
+ 			l, err = is.lss[img.OperatingSystem()].Get(chainID)
+ 			if err != nil {
++				logrus.Errorf("layer does not exist, not restoring image %v, %v, %s", dgst, chainID, img.OperatingSystem())
++				// If the layer doesn't exist, return nil to ignore this image.
+ 				if err == layer.ErrLayerDoesNotExist {
+-					logrus.Errorf("layer does not exist, not restoring image %v, %v, %s", dgst, chainID, img.OperatingSystem())
+ 					return nil
+ 				}
+ 				return err
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index 6a568e9d9b..351f787b87 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -105,7 +105,7 @@ func newStoreFromGraphDriver(root string, driver graphdriver.Driver, os string)
+ 	for _, id := range ids {
+ 		l, err := ls.loadLayer(id)
+ 		if err != nil {
+-			logrus.Debugf("Failed to load layer %s: %s", id, err)
++			logrus.Warnf("Failed to load layer %s: %s", id, err)
+ 			continue
+ 		}
+ 		if l.parent != nil {
+@@ -126,11 +126,17 @@ func (ls *layerStore) Driver() graphdriver.Driver {
+ 	return ls.driver
+ }
+ 
+-func (ls *layerStore) loadLayer(layer ChainID) (*roLayer, error) {
++func (ls *layerStore) loadLayer(layer ChainID) (l *roLayer, err error) {
+ 	cl, ok := ls.layerMap[layer]
+ 	if ok {
+ 		return cl, nil
+ 	}
++	defer func() {
++		// If failed to load the layer, remove the layer metadata.
++		if err != nil {
++			ls.store.Remove(layer)
++		}
++	}()
+ 
+ 	diff, err := ls.store.GetDiffID(layer)
+ 	if err != nil {
+@@ -147,6 +153,11 @@ func (ls *layerStore) loadLayer(layer ChainID) (*roLayer, error) {
+ 		return nil, fmt.Errorf("failed to get cache id for %s: %s", layer, err)
+ 	}
+ 
++	// Check whether the layer exists in graphdriver here.
++	if exist := ls.driver.Exists(cacheID); !exist {
++		return nil, fmt.Errorf("cacheID %s for layer %s does not exists in graphdriver", cacheID, layer)
++	}
++
+ 	parent, err := ls.store.GetParent(layer)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to get parent for %s: %s", layer, err)
+-- 
+2.17.1
+

@@ -1,0 +1,31 @@
+From 8dd367f460008bbe1715117610b1eb48cb5b20bf Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:17:23 +0800
+Subject: [PATCH 016/111] hookspec:  fix hooks nil pointer dereference
+
+reason: merge containerd and runc into one version for docker-1.11.2 and
+docker-17.06
+
+Change-Id: I1b0899cf18f2734bb205026b3094f1a3264a695e
+Signed-off-by: jingrui <jingrui@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/oci/defaults.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index 992157b0f5..5e17ea3f38 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -66,6 +66,7 @@ func DefaultLinuxSpec() specs.Spec {
+ 			},
+ 		},
+ 		Root: &specs.Root{},
++		Hooks: &specs.Hooks{},
+ 	}
+ 	s.Mounts = []specs.Mount{
+ 		{
+-- 
+2.17.1
+

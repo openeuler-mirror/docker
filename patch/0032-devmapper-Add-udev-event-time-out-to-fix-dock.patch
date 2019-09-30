@@ -1,0 +1,254 @@
+From e22807e3972f1c168e596fa95a97e2730024824c Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 10:20:44 +0800
+Subject: [PATCH 032/111] devmapper:  Add udev event time out to fix
+ docker stuck on udev wait
+
+reason: cherry-pick commits to docker-18.09
+
+Add udev event time out to fix docker stuck on udev wait
+
+Change-Id: I47505140699c0a51f37f4127b761f2a99930466d
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../daemon/graphdriver/devmapper/deviceset.go | 28 ++++++---
+ .../engine/pkg/devicemapper/devmapper.go      | 57 +++++++++++++------
+ .../pkg/devicemapper/devmapper_wrapper.go     |  5 ++
+ 3 files changed, 66 insertions(+), 24 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index 5dc01d71d9..af53cf83e6 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -35,13 +35,16 @@ import (
+ )
+ 
+ var (
+-	defaultDataLoopbackSize      int64  = 100 * 1024 * 1024 * 1024
+-	defaultMetaDataLoopbackSize  int64  = 2 * 1024 * 1024 * 1024
+-	defaultBaseFsSize            uint64 = 10 * 1024 * 1024 * 1024
+-	defaultThinpBlockSize        uint32 = 128 // 64K = 128 512b sectors
+-	defaultUdevSyncOverride             = false
+-	maxDeviceID                         = 0xffffff // 24 bit, pool limit
+-	deviceIDMapSz                       = (maxDeviceID + 1) / 8
++	defaultDataLoopbackSize     int64  = 100 * 1024 * 1024 * 1024
++	defaultMetaDataLoopbackSize int64  = 2 * 1024 * 1024 * 1024
++	defaultBaseFsSize           uint64 = 10 * 1024 * 1024 * 1024
++	defaultThinpBlockSize       uint32 = 128 // 64K = 128 512b sectors
++	defaultUdevSyncOverride            = false
++	maxDeviceID                        = 0xffffff // 24 bit, pool limit
++	deviceIDMapSz                      = (maxDeviceID + 1) / 8
++	// The default timeout is 30s from `man systemd-udevd`, we use 35
++	// just to make sure the timeout really happened in systemd-udevd
++	defaultUdevWaitTimeout              = 35
+ 	driverDeferredRemovalSupport        = false
+ 	enableDeferredRemoval               = false
+ 	enableDeferredDeletion              = false
+@@ -2059,7 +2062,9 @@ func (devices *DeviceSet) issueDiscard(info *devInfo) error {
+ // Should be called with devices.Lock() held.
+ func (devices *DeviceSet) deleteDevice(info *devInfo, syncDelete bool) error {
+ 	if devices.doBlkDiscard {
+-		devices.issueDiscard(info)
++		if err := devices.issueDiscard(info); err != nil {
++			return err
++		}
+ 	}
+ 
+ 	// Try to deactivate device in case it is active.
+@@ -2651,6 +2656,7 @@ func NewDeviceSet(root string, doInit bool, options []string, uidMaps, gidMaps [
+ 
+ 	foundBlkDiscard := false
+ 	var lvmSetupConfig directLVMConfig
++	udevWaitTimeout := int64(defaultUdevWaitTimeout)
+ 	for _, option := range options {
+ 		key, val, err := parsers.ParseKeyValueOpt(option)
+ 		if err != nil {
+@@ -2800,10 +2806,16 @@ func NewDeviceSet(root string, doInit bool, options []string, uidMaps, gidMaps [
+ 			devicemapper.LogInit(devicemapper.DefaultLogger{
+ 				Level: int(level),
+ 			})
++		case "dm.udev_wait_timeout":
++			udevWaitTimeout, err = strconv.ParseInt(val, 10, 32)
++			if err != nil {
++				return nil, err
++			}
+ 		default:
+ 			return nil, fmt.Errorf("devmapper: Unknown option %s", key)
+ 		}
+ 	}
++	devicemapper.SetUdevWaitTimtout(udevWaitTimeout)
+ 
+ 	if err := validateLVMConfig(lvmSetupConfig); err != nil {
+ 		return nil, err
+diff --git a/components/engine/pkg/devicemapper/devmapper.go b/components/engine/pkg/devicemapper/devmapper.go
+index 63243637a7..b384a27f8f 100644
+--- a/components/engine/pkg/devicemapper/devmapper.go
++++ b/components/engine/pkg/devicemapper/devmapper.go
+@@ -7,6 +7,7 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"runtime"
++	"time"
+ 	"unsafe"
+ 
+ 	"github.com/sirupsen/logrus"
+@@ -59,6 +60,7 @@ var (
+ 	ErrNilCookie            = errors.New("cookie ptr can't be nil")
+ 	ErrGetBlockSize         = errors.New("Can't get block size")
+ 	ErrUdevWait             = errors.New("wait on udev cookie failed")
++	ErrUdevWaitTimeout      = errors.New("wait on udev cookie time out")
+ 	ErrSetDevDir            = errors.New("dm_set_dev_dir failed")
+ 	ErrGetLibraryVersion    = errors.New("dm_get_library_version failed")
+ 	ErrCreateRemoveTask     = errors.New("Can't create task of type deviceRemove")
+@@ -71,10 +73,11 @@ var (
+ )
+ 
+ var (
+-	dmSawBusy    bool
+-	dmSawExist   bool
+-	dmSawEnxio   bool // No Such Device or Address
+-	dmSawEnoData bool // No data available
++	dmSawBusy         bool
++	dmSawExist        bool
++	dmSawEnxio        bool // No Such Device or Address
++	dmSawEnoData      bool // No data available
++	dmUdevWaitTimeout int64
+ )
+ 
+ type (
+@@ -256,13 +259,36 @@ func (t *Task) getNextTarget(next unsafe.Pointer) (nextPtr unsafe.Pointer, start
+ 
+ // UdevWait waits for any processes that are waiting for udev to complete the specified cookie.
+ func UdevWait(cookie *uint) error {
+-	if res := DmUdevWait(*cookie); res != 1 {
+-		logrus.Debugf("devicemapper: Failed to wait on udev cookie %d, %d", *cookie, res)
+-		return ErrUdevWait
++	chError := make(chan error)
++	go func() {
++		if res := DmUdevWait(*cookie); res != 1 {
++			logrus.Debugf("Failed to wait on udev cookie %d", *cookie)
++			chError <- ErrUdevWait
++		}
++		chError <- nil
++	}()
++	select {
++	case err := <-chError:
++		return err
++	case <-time.After(time.Second * time.Duration(dmUdevWaitTimeout)):
++		logrus.Errorf("Failed to wait on udev cookie %d: timeout %v", *cookie, dmUdevWaitTimeout)
++		if res := DmUdevComplete(*cookie); res != 1 {
++			// This is bad to return here
++			logrus.Errorf("Failed to complete udev cookie %d on udev wait timeout", *cookie)
++			return ErrUdevWaitTimeout
++		}
++		// wait DmUdevWait return after DmUdevComplete
++		<-chError
++		return ErrUdevWaitTimeout
+ 	}
+ 	return nil
+ }
+ 
++// SetUdevWaitTimtout sets udev wait timeout
++func SetUdevWaitTimtout(t int64) {
++	dmUdevWaitTimeout = t
++}
++
+ // SetDevDir sets the dev folder for the device mapper library (usually /dev).
+ func SetDevDir(dir string) error {
+ 	if res := DmSetDevDir(dir); res != 1 {
+@@ -319,11 +345,11 @@ func RemoveDevice(name string) error {
+ 	if err := task.setCookie(cookie, 0); err != nil {
+ 		return fmt.Errorf("devicemapper: Can not set cookie: %s", err)
+ 	}
+-	defer UdevWait(cookie)
+ 
+ 	dmSawBusy = false // reset before the task is run
+ 	dmSawEnxio = false
+ 	if err = task.run(); err != nil {
++		UdevWait(cookie)
+ 		if dmSawBusy {
+ 			return ErrBusy
+ 		}
+@@ -333,7 +359,7 @@ func RemoveDevice(name string) error {
+ 		return fmt.Errorf("devicemapper: Error running RemoveDevice %s", err)
+ 	}
+ 
+-	return nil
++	return UdevWait(cookie)
+ }
+ 
+ // RemoveDeviceDeferred is a useful helper for cleaning up a device, but deferred.
+@@ -470,13 +496,13 @@ func CreatePool(poolName string, dataFile, metadataFile *os.File, poolBlockSize
+ 	if err := task.setCookie(cookie, flags); err != nil {
+ 		return fmt.Errorf("devicemapper: Can't set cookie %s", err)
+ 	}
+-	defer UdevWait(cookie)
+ 
+ 	if err := task.run(); err != nil {
++		UdevWait(cookie)
+ 		return fmt.Errorf("devicemapper: Error running deviceCreate (CreatePool) %s", err)
+ 	}
+ 
+-	return nil
++	return UdevWait(cookie)
+ }
+ 
+ // ReloadPool is the programmatic example of "dmsetup reload".
+@@ -656,13 +682,13 @@ func ResumeDevice(name string) error {
+ 	if err := task.setCookie(cookie, 0); err != nil {
+ 		return fmt.Errorf("devicemapper: Can't set cookie %s", err)
+ 	}
+-	defer UdevWait(cookie)
+ 
+ 	if err := task.run(); err != nil {
++		UdevWait(cookie)
+ 		return fmt.Errorf("devicemapper: Error running deviceResume %s", err)
+ 	}
+ 
+-	return nil
++	return UdevWait(cookie)
+ }
+ 
+ // CreateDevice creates a device with the specified poolName with the specified device id.
+@@ -760,13 +786,12 @@ func activateDevice(poolName string, name string, deviceID int, size uint64, ext
+ 		return fmt.Errorf("devicemapper: Can't set cookie %s", err)
+ 	}
+ 
+-	defer UdevWait(cookie)
+-
+ 	if err := task.run(); err != nil {
++		UdevWait(cookie)
+ 		return fmt.Errorf("devicemapper: Error running deviceCreate (ActivateDevice) %s", err)
+ 	}
+ 
+-	return nil
++	return UdevWait(cookie)
+ }
+ 
+ // CreateSnapDeviceRaw creates a snapshot device. Caller needs to suspend and resume the origin device if it is active.
+diff --git a/components/engine/pkg/devicemapper/devmapper_wrapper.go b/components/engine/pkg/devicemapper/devmapper_wrapper.go
+index 0b88f49695..77cd674a09 100644
+--- a/components/engine/pkg/devicemapper/devmapper_wrapper.go
++++ b/components/engine/pkg/devicemapper/devmapper_wrapper.go
+@@ -77,6 +77,7 @@ var (
+ 	DmTaskSetRo               = dmTaskSetRoFct
+ 	DmTaskSetSector           = dmTaskSetSectorFct
+ 	DmUdevWait                = dmUdevWaitFct
++	DmUdevComplete            = dmUdevCompleteFct
+ 	DmUdevSetSyncSupport      = dmUdevSetSyncSupportFct
+ 	DmUdevGetSyncSupport      = dmUdevGetSyncSupportFct
+ 	DmCookieSupported         = dmCookieSupportedFct
+@@ -227,6 +228,10 @@ func dmUdevWaitFct(cookie uint) int {
+ 	return int(C.dm_udev_wait(C.uint32_t(cookie)))
+ }
+ 
++func dmUdevCompleteFct(cookie uint) int {
++	return int(C.dm_udev_complete(C.uint32_t(cookie)))
++}
++
+ func dmCookieSupportedFct() int {
+ 	return int(C.dm_cookie_supported())
+ }
+-- 
+2.17.1
+

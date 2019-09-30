@@ -1,0 +1,103 @@
+From ea43c4a77854f15a7782d3acda03b55145796a34 Mon Sep 17 00:00:00 2001
+From: zhaolongquan1 <zhaolongquan1@huawei.com>
+Date: Thu, 13 Jun 2019 20:56:05 -0400
+Subject: [PATCH] docker:  add log forwarding mechanism and print ppid
+
+reason:add caller information to the docker rm/stop/restart/kill command and print to the log
+
+Change-Id: I9de1b9ca2ed8b8802362a7cfeb881dbbafbdfe41
+Signed-off-by: zhaolongquan1 <zhaolongquan1@huawei.com>
+---
+ components/cli/cli/command/container/kill.go    | 3 +++
+ components/cli/cli/command/container/restart.go | 3 +++
+ components/cli/cli/command/container/rm.go      | 3 +++
+ components/cli/cli/command/container/stop.go    | 3 +++
+ 4 files changed, 12 insertions(+)
+
+diff --git a/components/cli/cli/command/container/kill.go b/components/cli/cli/command/container/kill.go
+index feedbc0..28e7415 100644
+--- a/components/cli/cli/command/container/kill.go
++++ b/components/cli/cli/command/container/kill.go
+@@ -3,6 +3,7 @@ package container
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/docker/docker/pkg/ppid"
+ 	"strings"
+ 
+ 	"github.com/docker/cli/cli"
+@@ -27,6 +28,8 @@ func NewKillCommand(dockerCli command.Cli) *cobra.Command {
+ 		Args:  cli.RequiresMinArgs(1),
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+ 			opts.containers = args
++			ppid.AddSyslogHook()
++			ppid.Log(cmd.Name(), args)
+ 			return runKill(dockerCli, &opts)
+ 		},
+ 	}
+diff --git a/components/cli/cli/command/container/restart.go b/components/cli/cli/command/container/restart.go
+index 6e02ee4..1951f0f 100644
+--- a/components/cli/cli/command/container/restart.go
++++ b/components/cli/cli/command/container/restart.go
+@@ -3,6 +3,7 @@ package container
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/docker/docker/pkg/ppid"
+ 	"strings"
+ 	"time"
+ 
+@@ -30,6 +31,8 @@ func NewRestartCommand(dockerCli command.Cli) *cobra.Command {
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+ 			opts.containers = args
+ 			opts.nSecondsChanged = cmd.Flags().Changed("time")
++			ppid.AddSyslogHook()
++			ppid.Log(cmd.Name(), args)
+ 			return runRestart(dockerCli, &opts)
+ 		},
+ 	}
+diff --git a/components/cli/cli/command/container/rm.go b/components/cli/cli/command/container/rm.go
+index 2dcd4b6..29ba403 100644
+--- a/components/cli/cli/command/container/rm.go
++++ b/components/cli/cli/command/container/rm.go
+@@ -3,6 +3,7 @@ package container
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/docker/docker/pkg/ppid"
+ 	"strings"
+ 
+ 	"github.com/docker/cli/cli"
+@@ -30,6 +31,8 @@ func NewRmCommand(dockerCli command.Cli) *cobra.Command {
+ 		Args:  cli.RequiresMinArgs(1),
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+ 			opts.containers = args
++			ppid.AddSyslogHook()
++			ppid.Log(cmd.Name(), args)
+ 			return runRm(dockerCli, &opts)
+ 		},
+ 	}
+diff --git a/components/cli/cli/command/container/stop.go b/components/cli/cli/command/container/stop.go
+index e299175..e6ab748 100644
+--- a/components/cli/cli/command/container/stop.go
++++ b/components/cli/cli/command/container/stop.go
+@@ -3,6 +3,7 @@ package container
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/docker/docker/pkg/ppid"
+ 	"strings"
+ 	"time"
+ 
+@@ -30,6 +31,8 @@ func NewStopCommand(dockerCli command.Cli) *cobra.Command {
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+ 			opts.containers = args
+ 			opts.timeChanged = cmd.Flags().Changed("time")
++			ppid.AddSyslogHook()
++			ppid.Log(cmd.Name(), args)
+ 			return runStop(dockerCli, &opts)
+ 		},
+ 	}
+-- 
+1.8.3.1
+

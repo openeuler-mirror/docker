@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Copyright (c) Huawei Technologies Co., Ltd. 2018-2019. All rights reserved.
+# Description: This shell script is used to apply patches for the project
+# Author: jingrui@huawei.com
+# Create: 2019-03-02
+
+set -ex
+
+pkg=docker-ce-18.09.0
+cwd=$PWD
+src=$cwd/$pkg
+
+tar -xzvf $pkg.tar.gz
+
+cd $src
+git init
+git add .
+git config user.name 'build'
+git config user.email 'build@obs.com'
+git commit -m 'init build'
+cd $cwd
+
+series=$cwd/series.conf
+while IPF= read -r line
+do
+    if [[ "$line" =~ ^patch* ]]; then
+        echo git apply $cwd/$line
+        cd $src && git apply $cwd/$line
+    fi
+done <"$series"
+
+cd $cwd
+
+if [ "$1" == "selinux" ]; then
+    cp -rf $src/components/engine/contrib/selinux-euleros/docker-engine-selinux/* .
+else
+    cp -rf $src/* .
+    cp -rf VERSION-openeuler $cwd/components/cli/
+    cp -rf VERSION-openeuler $cwd/components/engine/
+fi
+mv $src/.git $src/git
+
+

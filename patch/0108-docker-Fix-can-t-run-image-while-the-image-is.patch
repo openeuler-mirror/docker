@@ -1,0 +1,107 @@
+From 2b41c414a53011ce005890ff9310bfa5c71fbfbc Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Fri, 18 Jan 2019 17:39:32 +0800
+Subject: [PATCH 108/111] docker:  Fix can't run image while the image
+ is not in `docker images`
+
+reason:When the layers of image has been damaged, daemon restart fail to load image,
+it cause docker can't run the image with unrecognized image ID error.
+
+Change-Id: I1cecc0dd602cd5a60006ba5c3e6060bd4071fb8e
+Signed-off-by: PengFei Yang <yangpengfei4@huawei.com>
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ components/engine/daemon/daemon.go        | 28 +++++++++++++++++++++++
+ components/engine/plugin/backend_linux.go |  4 ++++
+ components/engine/reference/store.go      | 14 ++++++++++++
+ 3 files changed, 46 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index c96e28d88d..7716964304 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -1028,6 +1028,34 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 		return nil, err
+ 	}
+ 
++	// delete reference of image not nornamlly loaded to imageStore
++	for _, imageID := range rs.List() {
++		if img, err := imageStore.Get(image.ID(imageID)); err == nil {
++			isExist := false
++			if chainID := img.RootFS.ChainID(); chainID != "" {
++				l, err := layerStores[runtime.GOOS].Get(chainID)
++				if err == nil {
++					layer.ReleaseAndLog(layerStores[runtime.GOOS], l)
++					isExist = true
++				}
++			} else {
++				isExist = true
++			}
++			// If the image not exist locally, delete its reference
++			if !isExist {
++				for _, ref := range rs.References(imageID) {
++					isDelete, err := rs.Delete(ref)
++					if isDelete {
++						logrus.Warnf("Delete reference %s for image id %s from reference store", ref.String(), imageID)
++					}
++					if err != nil {
++						logrus.Warnf("Faild to delete reference %s for image id %s: %v", ref.String(), imageID, err)
++					}
++				}
++			}
++		}
++	}
++
+ 	// No content-addressability migration on Windows as it never supported pre-CA
+ 	if runtime.GOOS != "windows" {
+ 		migrationStart := time.Now()
+diff --git a/components/engine/plugin/backend_linux.go b/components/engine/plugin/backend_linux.go
+index 044e14b0cb..e5d3be15ee 100644
+--- a/components/engine/plugin/backend_linux.go
++++ b/components/engine/plugin/backend_linux.go
+@@ -490,6 +490,10 @@ func (r *pluginReference) References(id digest.Digest) []reference.Named {
+ 	return []reference.Named{r.name}
+ }
+ 
++func (r *pluginReference) List() []digest.Digest {
++	return []digest.Digest{}
++}
++
+ func (r *pluginReference) ReferencesByName(ref reference.Named) []refstore.Association {
+ 	return []refstore.Association{
+ 		{
+diff --git a/components/engine/reference/store.go b/components/engine/reference/store.go
+index e54f772b5e..0df11271a7 100644
+--- a/components/engine/reference/store.go
++++ b/components/engine/reference/store.go
+@@ -34,6 +34,7 @@ type Store interface {
+ 	AddDigest(ref reference.Canonical, id digest.Digest, force bool) error
+ 	Delete(ref reference.Named) (bool, error)
+ 	Get(ref reference.Named) (digest.Digest, error)
++	List() []digest.Digest
+ }
+ 
+ type store struct {
+@@ -274,6 +275,19 @@ func (store *store) References(id digest.Digest) []reference.Named {
+ 	return references
+ }
+ 
++// List retrieves list of image ID, return nil if no image
++func (store *store) List() []digest.Digest {
++	store.mu.RLock()
++	defer store.mu.RUnlock()
++
++	var ids []digest.Digest
++	for id, _ := range store.referencesByIDCache {
++		ids = append(ids, id)
++	}
++
++	return ids
++}
++
+ // ReferencesByName returns the references for a given repository name.
+ // If there are no references known for this repository name,
+ // ReferencesByName returns nil.
+-- 
+2.17.1
+

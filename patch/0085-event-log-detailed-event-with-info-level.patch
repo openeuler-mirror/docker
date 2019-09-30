@@ -1,0 +1,129 @@
+From 2a3375c72a5d535864561a0a5fd46dc1fee17013 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Fri, 25 Jan 2019 16:56:08 +0800
+Subject: [PATCH 085/111] event:  log detailed event with info level
+
+reason: DFX improve event level and record with detailed info.
+
+Change-Id: Ibb5b1058b84de39f9f7058a46a15c2dbd27bc746
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../engine/libcontainerd/client_daemon.go     | 51 ++++++++++++++++++-
+ 1 file changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/libcontainerd/client_daemon.go b/components/engine/libcontainerd/client_daemon.go
+index cb9cb43a73..491bda281c 100644
+--- a/components/engine/libcontainerd/client_daemon.go
++++ b/components/engine/libcontainerd/client_daemon.go
+@@ -791,8 +791,6 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 				continue
+ 			}
+ 
+-			c.logger.WithField("topic", ev.Topic).Debug("event")
+-
+ 			switch t := v.(type) {
+ 			case *apievents.TaskCreate:
+ 				et = EventCreate
+@@ -801,6 +799,11 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 					ProcessID:   t.ContainerID,
+ 					Pid:         t.Pid,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"Pid": t.Pid,
++				}).Infof("event")
+ 			case *apievents.TaskStart:
+ 				et = EventStart
+ 				ei = EventInfo{
+@@ -808,6 +811,11 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 					ProcessID:   t.ContainerID,
+ 					Pid:         t.Pid,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"Pid": t.Pid,
++				}).Infof("event")
+ 			case *apievents.TaskExit:
+ 				et = EventExit
+ 				ei = EventInfo{
+@@ -817,6 +825,13 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 					ExitCode:    t.ExitStatus,
+ 					ExitedAt:    t.ExitedAt,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"Pid": t.Pid,
++					"ExitStatus": t.ExitStatus,
++					"ExitedAt": t.ExitedAt,
++				}).Infof("event")
+ 			case *apievents.TaskOOM:
+ 				et = EventOOM
+ 				ei = EventInfo{
+@@ -824,12 +839,22 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 					OOMKilled:   true,
+ 				}
+ 				oomKilled = true
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"OOMKilled": true,
++				}).Infof("event")
+ 			case *apievents.TaskExecAdded:
+ 				et = EventExecAdded
+ 				ei = EventInfo{
+ 					ContainerID: t.ContainerID,
+ 					ProcessID:   t.ExecID,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"execID": t.ExecID,
++				}).Infof("event")
+ 			case *apievents.TaskExecStarted:
+ 				et = EventExecStarted
+ 				ei = EventInfo{
+@@ -837,16 +862,38 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 					ProcessID:   t.ExecID,
+ 					Pid:         t.Pid,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"execID": t.ExecID,
++					"Pid": t.Pid,
++				}).Infof("event")
+ 			case *apievents.TaskPaused:
+ 				et = EventPaused
+ 				ei = EventInfo{
+ 					ContainerID: t.ContainerID,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++				}).Infof("event")
+ 			case *apievents.TaskResumed:
+ 				et = EventResumed
+ 				ei = EventInfo{
+ 					ContainerID: t.ContainerID,
+ 				}
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++				}).Infof("event")
++			case *apievents.TaskDelete:
++				c.logger.WithFields(logrus.Fields{
++					"topic": ev.Topic,
++					"containerID": t.ContainerID,
++					"Pid": t.Pid,
++					"ExitStatus": t.ExitStatus,
++					"ExitedAt": t.ExitedAt,
++				}).Infof("event")
+ 			default:
+ 				c.logger.WithFields(logrus.Fields{
+ 					"topic": ev.Topic,
+-- 
+2.17.1
+

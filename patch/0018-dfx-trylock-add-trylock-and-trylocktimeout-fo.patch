@@ -1,0 +1,362 @@
+From 6a9e68763da72ebc0b9a7e45cd08ce57fe11998f Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:21:56 +0800
+Subject: [PATCH 018/111] dfx/trylock:  add trylock and trylocktimeout
+ for docker inspect
+
+reason:In order to avoid deadlocks, add trylock and trylocktimeout
+	   for docker inspect commmand. The -t/--time is a parameter of
+	   docker inspect command, set by user, and the default value
+	   is 120s.
+
+Change-Id: Ie30ff28941624cc595e2a30d453d6f90b265d803
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ .../cli/cli/command/container/inspect.go      |  4 +-
+ components/cli/cli/command/system/inspect.go  | 12 ++--
+ .../github.com/docker/docker/client/Checklist |  1 +
+ .../docker/docker/client/container_inspect.go |  4 +-
+ .../docker/docker/client/interface.go         |  2 +-
+ .../api/server/router/container/backend.go    |  2 +-
+ .../api/server/router/container/inspect.go    |  4 +-
+ components/engine/container/state.go          |  4 +-
+ .../engine/daemon/cluster/executor/backend.go |  2 +-
+ .../cluster/executor/container/adapter.go     |  3 +-
+ components/engine/daemon/inspect.go           | 12 ++--
+ components/engine/pkg/trylock/mutex.go        | 61 +++++++++++++++++++
+ 12 files changed, 93 insertions(+), 18 deletions(-)
+ create mode 100644 components/cli/vendor/github.com/docker/docker/client/Checklist
+ create mode 100644 components/engine/pkg/trylock/mutex.go
+
+diff --git a/components/cli/cli/command/container/inspect.go b/components/cli/cli/command/container/inspect.go
+index 4f50e2a080..b77994e896 100644
+--- a/components/cli/cli/command/container/inspect.go
++++ b/components/cli/cli/command/container/inspect.go
+@@ -13,6 +13,7 @@ type inspectOptions struct {
+ 	format string
+ 	size   bool
+ 	refs   []string
++	time   int
+ }
+ 
+ // newInspectCommand creates a new cobra.Command for `docker container inspect`
+@@ -32,6 +33,7 @@ func newInspectCommand(dockerCli command.Cli) *cobra.Command {
+ 	flags := cmd.Flags()
+ 	flags.StringVarP(&opts.format, "format", "f", "", "Format the output using the given Go template")
+ 	flags.BoolVarP(&opts.size, "size", "s", false, "Display total file sizes")
++	flags.IntVarP(&opts.time, "time", "t", 120, "Seconds to wait for inspect timeout")
+ 
+ 	return cmd
+ }
+@@ -41,7 +43,7 @@ func runInspect(dockerCli command.Cli, opts inspectOptions) error {
+ 	ctx := context.Background()
+ 
+ 	getRefFunc := func(ref string) (interface{}, []byte, error) {
+-		return client.ContainerInspectWithRaw(ctx, ref, opts.size)
++		return client.ContainerInspectWithRaw(ctx, ref, opts.size, opts.time)
+ 	}
+ 	return inspect.Inspect(dockerCli.Out(), opts.refs, opts.format, getRefFunc)
+ }
+diff --git a/components/cli/cli/command/system/inspect.go b/components/cli/cli/command/system/inspect.go
+index b49b4b33d3..248f9caad2 100644
+--- a/components/cli/cli/command/system/inspect.go
++++ b/components/cli/cli/command/system/inspect.go
+@@ -19,6 +19,7 @@ type inspectOptions struct {
+ 	inspectType string
+ 	size        bool
+ 	ids         []string
++	time        int
+ }
+ 
+ // NewInspectCommand creates a new cobra.Command for `docker inspect`
+@@ -39,6 +40,7 @@ func NewInspectCommand(dockerCli command.Cli) *cobra.Command {
+ 	flags.StringVarP(&opts.format, "format", "f", "", "Format the output using the given Go template")
+ 	flags.StringVar(&opts.inspectType, "type", "", "Return JSON for specified type")
+ 	flags.BoolVarP(&opts.size, "size", "s", false, "Display total file sizes if the type is container")
++	flags.IntVarP(&opts.time, "time", "t", 120, "Seconds to wait for inspect timeout")
+ 
+ 	return cmd
+ }
+@@ -47,16 +49,16 @@ func runInspect(dockerCli command.Cli, opts inspectOptions) error {
+ 	var elementSearcher inspect.GetRefFunc
+ 	switch opts.inspectType {
+ 	case "", "container", "image", "node", "network", "service", "volume", "task", "plugin", "secret":
+-		elementSearcher = inspectAll(context.Background(), dockerCli, opts.size, opts.inspectType)
++		elementSearcher = inspectAll(context.Background(), dockerCli, opts.size, opts.inspectType, opts.time)
+ 	default:
+ 		return errors.Errorf("%q is not a valid value for --type", opts.inspectType)
+ 	}
+ 	return inspect.Inspect(dockerCli.Out(), opts.ids, opts.format, elementSearcher)
+ }
+ 
+-func inspectContainers(ctx context.Context, dockerCli command.Cli, getSize bool) inspect.GetRefFunc {
++func inspectContainers(ctx context.Context, dockerCli command.Cli, getSize bool, timeout int) inspect.GetRefFunc {
+ 	return func(ref string) (interface{}, []byte, error) {
+-		return dockerCli.Client().ContainerInspectWithRaw(ctx, ref, getSize)
++		return dockerCli.Client().ContainerInspectWithRaw(ctx, ref, getSize, timeout)
+ 	}
+ }
+ 
+@@ -109,7 +111,7 @@ func inspectSecret(ctx context.Context, dockerCli command.Cli) inspect.GetRefFun
+ 	}
+ }
+ 
+-func inspectAll(ctx context.Context, dockerCli command.Cli, getSize bool, typeConstraint string) inspect.GetRefFunc {
++func inspectAll(ctx context.Context, dockerCli command.Cli, getSize bool, typeConstraint string, timeout int) inspect.GetRefFunc {
+ 	var inspectAutodetect = []struct {
+ 		objectType      string
+ 		isSizeSupported bool
+@@ -119,7 +121,7 @@ func inspectAll(ctx context.Context, dockerCli command.Cli, getSize bool, typeCo
+ 		{
+ 			objectType:      "container",
+ 			isSizeSupported: true,
+-			objectInspector: inspectContainers(ctx, dockerCli, getSize),
++			objectInspector: inspectContainers(ctx, dockerCli, getSize, timeout),
+ 		},
+ 		{
+ 			objectType:      "image",
+diff --git a/components/cli/vendor/github.com/docker/docker/client/Checklist b/components/cli/vendor/github.com/docker/docker/client/Checklist
+new file mode 100644
+index 0000000000..9b1682dc41
+--- /dev/null
++++ b/components/cli/vendor/github.com/docker/docker/client/Checklist
+@@ -0,0 +1 @@
++Add trylcok and trylocktimeout for docker inspect commmand.
+diff --git a/components/cli/vendor/github.com/docker/docker/client/container_inspect.go b/components/cli/vendor/github.com/docker/docker/client/container_inspect.go
+index f453064cf8..b8573fd40b 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/container_inspect.go
++++ b/components/cli/vendor/github.com/docker/docker/client/container_inspect.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/json"
+ 	"io/ioutil"
+ 	"net/url"
++	"strconv"
+ 
+ 	"github.com/docker/docker/api/types"
+ )
+@@ -27,7 +28,7 @@ func (cli *Client) ContainerInspect(ctx context.Context, containerID string) (ty
+ }
+ 
+ // ContainerInspectWithRaw returns the container information and its raw representation.
+-func (cli *Client) ContainerInspectWithRaw(ctx context.Context, containerID string, getSize bool) (types.ContainerJSON, []byte, error) {
++func (cli *Client) ContainerInspectWithRaw(ctx context.Context, containerID string, getSize bool, timeout int) (types.ContainerJSON, []byte, error) {
+ 	if containerID == "" {
+ 		return types.ContainerJSON{}, nil, objectNotFoundError{object: "container", id: containerID}
+ 	}
+@@ -35,6 +36,7 @@ func (cli *Client) ContainerInspectWithRaw(ctx context.Context, containerID stri
+ 	if getSize {
+ 		query.Set("size", "1")
+ 	}
++	query.Set("t", strconv.Itoa(timeout))
+ 	serverResp, err := cli.get(ctx, "/containers/"+containerID+"/json", query, nil)
+ 	if err != nil {
+ 		return types.ContainerJSON{}, nil, wrapResponseError(err, serverResp, "container", containerID)
+diff --git a/components/cli/vendor/github.com/docker/docker/client/interface.go b/components/cli/vendor/github.com/docker/docker/client/interface.go
+index d190f8e58d..b2d5d7bb72 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/interface.go
++++ b/components/cli/vendor/github.com/docker/docker/client/interface.go
+@@ -56,7 +56,7 @@ type ContainerAPIClient interface {
+ 	ContainerExecStart(ctx context.Context, execID string, config types.ExecStartCheck) error
+ 	ContainerExport(ctx context.Context, container string) (io.ReadCloser, error)
+ 	ContainerInspect(ctx context.Context, container string) (types.ContainerJSON, error)
+-	ContainerInspectWithRaw(ctx context.Context, container string, getSize bool) (types.ContainerJSON, []byte, error)
++	ContainerInspectWithRaw(ctx context.Context, container string, getSize bool, timeout int) (types.ContainerJSON, []byte, error)
+ 	ContainerKill(ctx context.Context, container, signal string) error
+ 	ContainerList(ctx context.Context, options types.ContainerListOptions) ([]types.Container, error)
+ 	ContainerLogs(ctx context.Context, container string, options types.ContainerLogsOptions) (io.ReadCloser, error)
+diff --git a/components/engine/api/server/router/container/backend.go b/components/engine/api/server/router/container/backend.go
+index 75ea1d82b7..88fbe71a88 100644
+--- a/components/engine/api/server/router/container/backend.go
++++ b/components/engine/api/server/router/container/backend.go
+@@ -49,7 +49,7 @@ type stateBackend interface {
+ // monitorBackend includes functions to implement to provide containers monitoring functionality.
+ type monitorBackend interface {
+ 	ContainerChanges(name string) ([]archive.Change, error)
+-	ContainerInspect(name string, size bool, version string) (interface{}, error)
++	ContainerInspect(name string, size bool, version string, timeout int) (interface{}, error)
+ 	ContainerLogs(ctx context.Context, name string, config *types.ContainerLogsOptions) (msgs <-chan *backend.LogMessage, tty bool, err error)
+ 	ContainerStats(ctx context.Context, name string, config *backend.ContainerStatsConfig) error
+ 	ContainerTop(name string, psArgs string) (*container.ContainerTopOKBody, error)
+diff --git a/components/engine/api/server/router/container/inspect.go b/components/engine/api/server/router/container/inspect.go
+index 5c78d15bc9..cb6eb50251 100644
+--- a/components/engine/api/server/router/container/inspect.go
++++ b/components/engine/api/server/router/container/inspect.go
+@@ -3,6 +3,7 @@ package container // import "github.com/docker/docker/api/server/router/containe
+ import (
+ 	"context"
+ 	"net/http"
++	"strconv"
+ 
+ 	"github.com/docker/docker/api/server/httputils"
+ )
+@@ -12,7 +13,8 @@ func (s *containerRouter) getContainersByName(ctx context.Context, w http.Respon
+ 	displaySize := httputils.BoolValue(r, "size")
+ 
+ 	version := httputils.VersionFromContext(ctx)
+-	json, err := s.backend.ContainerInspect(vars["name"], displaySize, version)
++	timeout, _ := strconv.Atoi(r.Form.Get("t"))
++	json, err := s.backend.ContainerInspect(vars["name"], displaySize, version, timeout)
+ 	if err != nil {
+ 		return err
+ 	}
+diff --git a/components/engine/container/state.go b/components/engine/container/state.go
+index 7c2a1ec81c..91ea30a76e 100644
+--- a/components/engine/container/state.go
++++ b/components/engine/container/state.go
+@@ -4,10 +4,10 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
+-	"sync"
+ 	"time"
+ 
+ 	"github.com/docker/docker/api/types"
++	"github.com/docker/docker/pkg/trylock"
+ 	"github.com/docker/go-units"
+ )
+ 
+@@ -15,7 +15,7 @@ import (
+ // set the state. Container has an embed, which allows all of the
+ // functions defined against State to run against Container.
+ type State struct {
+-	sync.Mutex
++	trylock.TryMutex
+ 	// Note that `Running` and `Paused` are not mutually exclusive:
+ 	// When pausing a container (on Linux), the cgroups freezer is used to suspend
+ 	// all processes in the container. Freezing the process requires the process to
+diff --git a/components/engine/daemon/cluster/executor/backend.go b/components/engine/daemon/cluster/executor/backend.go
+index cfbc86ce36..c9ff4503bc 100644
+--- a/components/engine/daemon/cluster/executor/backend.go
++++ b/components/engine/daemon/cluster/executor/backend.go
+@@ -41,7 +41,7 @@ type Backend interface {
+ 	ActivateContainerServiceBinding(containerName string) error
+ 	DeactivateContainerServiceBinding(containerName string) error
+ 	UpdateContainerServiceConfig(containerName string, serviceConfig *clustertypes.ServiceConfig) error
+-	ContainerInspectCurrent(name string, size bool) (*types.ContainerJSON, error)
++	ContainerInspectCurrent(name string, size bool, timeout int) (*types.ContainerJSON, error)
+ 	ContainerWait(ctx context.Context, name string, condition containerpkg.WaitCondition) (<-chan containerpkg.StateStatus, error)
+ 	ContainerRm(name string, config *types.ContainerRmConfig) error
+ 	ContainerKill(name string, sig uint64) error
+diff --git a/components/engine/daemon/cluster/executor/container/adapter.go b/components/engine/daemon/cluster/executor/container/adapter.go
+index 720b8447fc..3743cb6418 100644
+--- a/components/engine/daemon/cluster/executor/container/adapter.go
++++ b/components/engine/daemon/cluster/executor/container/adapter.go
+@@ -351,7 +351,8 @@ func (c *containerAdapter) start(ctx context.Context) error {
+ }
+ 
+ func (c *containerAdapter) inspect(ctx context.Context) (types.ContainerJSON, error) {
+-	cs, err := c.backend.ContainerInspectCurrent(c.container.name(), false)
++	timeout := -1
++	cs, err := c.backend.ContainerInspectCurrent(c.container.name(), false, timeout)
+ 	if ctx.Err() != nil {
+ 		return types.ContainerJSON{}, ctx.Err()
+ 	}
+diff --git a/components/engine/daemon/inspect.go b/components/engine/daemon/inspect.go
+index 45a2154254..be8f6eff71 100644
+--- a/components/engine/daemon/inspect.go
++++ b/components/engine/daemon/inspect.go
+@@ -19,25 +19,29 @@ import (
+ // ContainerInspect returns low-level information about a
+ // container. Returns an error if the container cannot be found, or if
+ // there is an error getting the data.
+-func (daemon *Daemon) ContainerInspect(name string, size bool, version string) (interface{}, error) {
++func (daemon *Daemon) ContainerInspect(name string, size bool, version string, timeout int) (interface{}, error) {
+ 	switch {
+ 	case versions.LessThan(version, "1.20"):
+ 		return daemon.containerInspectPre120(name)
+ 	case versions.Equal(version, "1.20"):
+ 		return daemon.containerInspect120(name)
+ 	}
+-	return daemon.ContainerInspectCurrent(name, size)
++	return daemon.ContainerInspectCurrent(name, size, timeout)
+ }
+ 
+ // ContainerInspectCurrent returns low-level information about a
+ // container in a most recent api version.
+-func (daemon *Daemon) ContainerInspectCurrent(name string, size bool) (*types.ContainerJSON, error) {
++func (daemon *Daemon) ContainerInspectCurrent(name string, size bool, timeout int) (*types.ContainerJSON, error) {
+ 	container, err := daemon.GetContainer(name)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 
+-	container.Lock()
++	// The unit of timeout is seconds, and the unit of frequency is milliseconds.
++	lockTimeoutSuccess := container.TryLockTimeout(timeout, 100)
++	if lockTimeoutSuccess == false {
++		return nil, fmt.Errorf("Container %s inspect failed due to trylock timeout for %ds.", name, timeout)
++	}
+ 
+ 	base, err := daemon.getInspectData(container)
+ 	if err != nil {
+diff --git a/components/engine/pkg/trylock/mutex.go b/components/engine/pkg/trylock/mutex.go
+new file mode 100644
+index 0000000000..18b3c3cca7
+--- /dev/null
++++ b/components/engine/pkg/trylock/mutex.go
+@@ -0,0 +1,61 @@
++package trylock
++
++import (
++	"sync"
++	"sync/atomic"
++	"time"
++	"unsafe"
++)
++
++const mutexLocked = 1 << iota
++
++// Mutex is simple sync.Mutex + ability to try to Lock.
++type TryMutex struct {
++	in sync.Mutex
++}
++
++// Lock locks m.
++// If the lock is already in use, the calling goroutine
++// blocks until the mutex is available.
++func (m *TryMutex) Lock() {
++	m.in.Lock()
++}
++
++// Unlock unlocks m.
++// It is a run-time error if m is not locked on entry to Unlock.
++//
++// A locked Mutex is not associated with a particular goroutine.
++// It is allowed for one goroutine to lock a Mutex and then
++// arrange for another goroutine to unlock it.
++func (m *TryMutex) Unlock() {
++	m.in.Unlock()
++}
++
++// TryLock tries to lock m. It returns true in case of success, false otherwise.
++func (m *TryMutex) TryLock() bool {
++	return atomic.CompareAndSwapInt32((*int32)(unsafe.Pointer(&m.in)), 0, mutexLocked)
++}
++
++// TryLockTimeout tries to lock m at a certain frequency for a certain period of time.
++// It returns true in case of success, false otherwise.
++func (m *TryMutex) TryLockTimeout(timeout int, frequency int) bool {
++	if timeout <= 0 {
++		m.Lock()
++		return true
++	} else {
++		timer := time.After(time.Second * time.Duration(timeout))
++		result := false
++		for {
++			select {
++			case <-timer:
++				return result
++			default:
++			}
++			result = atomic.CompareAndSwapInt32((*int32)(unsafe.Pointer(&m.in)), 0, mutexLocked)
++			if result {
++				return result
++			}
++			time.Sleep(time.Millisecond * time.Duration(frequency))
++		}
++	}
++}
+-- 
+2.17.1
+

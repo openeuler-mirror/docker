@@ -1,0 +1,90 @@
+From 42d1e785f2343323822db35966412fdcfce87989 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 18 Jan 2019 15:55:51 +0800
+Subject: [PATCH 060/111] debug:  Add check when execute docker {cp,
+ export, diff}
+
+reason:If a container is in Dead or RemovalInProgress state,it should return err for tip.
+
+Cherry-pick from docker 1.11.2:
+- 903a5de Add check when execute docker {cp, export, diff}
+
+Change-Id: Idf441bf7d194cc61c618c20c0e6ef8b339e81191
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/daemon/archive.go | 13 +++++++++++++
+ components/engine/daemon/changes.go |  5 +++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/components/engine/daemon/archive.go b/components/engine/daemon/archive.go
+index 9c7971b56e..f1b715d9ae 100644
+--- a/components/engine/daemon/archive.go
++++ b/components/engine/daemon/archive.go
+@@ -1,6 +1,7 @@
+ package daemon // import "github.com/docker/docker/daemon"
+ 
+ import (
++	"fmt"
+ 	"io"
+ 	"os"
+ 	"strings"
+@@ -77,6 +78,10 @@ func (daemon *Daemon) ContainerStatPath(name string, path string) (stat *types.C
+ 		return nil, err
+ 	}
+ 
++	if container.RemovalInProgress || container.Dead {
++		return nil, fmt.Errorf("can't stat file from a container which is dead or marked for removal")
++	}
++
+ 	// Make sure an online file-system operation is permitted.
+ 	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
+ 		return nil, errdefs.System(err)
+@@ -102,6 +107,10 @@ func (daemon *Daemon) ContainerArchivePath(name string, path string) (content io
+ 		return nil, nil, err
+ 	}
+ 
++	if container.RemovalInProgress || container.Dead {
++		return nil, nil, fmt.Errorf("can't copy file from a container which is dead or marked for removal")
++	}
++
+ 	// Make sure an online file-system operation is permitted.
+ 	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
+ 		return nil, nil, errdefs.System(err)
+@@ -130,6 +139,10 @@ func (daemon *Daemon) ContainerExtractToDir(name, path string, copyUIDGID, noOve
+ 		return err
+ 	}
+ 
++	if container.RemovalInProgress || container.Dead {
++		return fmt.Errorf("can't copy to a container which is dead or marked for removal")
++	}
++
+ 	// Make sure an online file-system operation is permitted.
+ 	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
+ 		return errdefs.System(err)
+diff --git a/components/engine/daemon/changes.go b/components/engine/daemon/changes.go
+index 70b3f6b943..55575a96bd 100644
+--- a/components/engine/daemon/changes.go
++++ b/components/engine/daemon/changes.go
+@@ -6,6 +6,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/docker/docker/pkg/archive"
++	"fmt"
+ )
+ 
+ // ContainerChanges returns a list of container fs changes
+@@ -16,6 +17,10 @@ func (daemon *Daemon) ContainerChanges(name string) ([]archive.Change, error) {
+ 		return nil, err
+ 	}
+ 
++	if container.RemovalInProgress || container.Dead {
++		return nil, fmt.Errorf("can't diff a container which is dead or marked for removal")
++	}
++
+ 	if runtime.GOOS == "windows" && container.IsRunning() {
+ 		return nil, errors.New("Windows does not support diff of a running container")
+ 	}
+-- 
+2.17.1
+

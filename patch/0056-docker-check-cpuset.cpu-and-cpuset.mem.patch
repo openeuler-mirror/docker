@@ -1,0 +1,132 @@
+From e894ad0fa1c84d1a01afc47ccc52c3556121bbcd Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Tue, 8 Jan 2019 20:17:21 +0800
+Subject: [PATCH 056/111] docker:  check cpuset.cpu and cpuset.mem
+
+reason:check cpuset.cpu and cpuset.mem
+
+cherry-pick from docker 1.11.2:
+- 1c769f0 check cpuset.cpu and cpuset.mem
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+-----
+- 782f78f check cpuset.cpu and cpuset.mem
+Signed-off-by: wangyi45 <wangyi45@huawei.com>
+
+Change-Id: If21cad2023d737d03ba3d4a83e62d11fb2297945
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/daemon/daemon_unix.go  |  2 +
+ components/engine/pkg/sysinfo/sysinfo.go | 64 +++++++++++++++++++++++-
+ 2 files changed, 65 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index e48dfcd1ef..b20c66e27b 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -499,6 +499,7 @@ func (daemon *Daemon) verifyContainerResources(hostConfig *containertypes.HostCo
+ 	}
+ 	cpusAvailable, err := sysInfo.IsCpusetCpusAvailable(resources.CpusetCpus)
+ 	if err != nil {
++		logrus.Errorf("Checking cpuset.cpus got %#v", err.Error())
+ 		return warnings, errors.Wrapf(err, "Invalid value %s for cpuset cpus", resources.CpusetCpus)
+ 	}
+ 	if !cpusAvailable {
+@@ -506,6 +507,7 @@ func (daemon *Daemon) verifyContainerResources(hostConfig *containertypes.HostCo
+ 	}
+ 	memsAvailable, err := sysInfo.IsCpusetMemsAvailable(resources.CpusetMems)
+ 	if err != nil {
++		logrus.Errorf("Checking cpuset.mems got %#v", err.Error())
+ 		return warnings, errors.Wrapf(err, "Invalid value %s for cpuset mems", resources.CpusetMems)
+ 	}
+ 	if !memsAvailable {
+diff --git a/components/engine/pkg/sysinfo/sysinfo.go b/components/engine/pkg/sysinfo/sysinfo.go
+index 5d9320218c..7ea1be5daf 100644
+--- a/components/engine/pkg/sysinfo/sysinfo.go
++++ b/components/engine/pkg/sysinfo/sysinfo.go
+@@ -1,6 +1,12 @@
+ package sysinfo // import "github.com/docker/docker/pkg/sysinfo"
+ 
+-import "github.com/docker/docker/pkg/parsers"
++import (
++	"fmt"
++	"strconv"
++	"strings"
++
++	"github.com/docker/docker/pkg/parsers"
++)
+ 
+ // SysInfo stores information about which features a kernel supports.
+ // TODO Windows: Factor out platform specific capabilities.
+@@ -123,6 +129,13 @@ func (c cgroupCpusetInfo) IsCpusetMemsAvailable(provided string) (bool, error) {
+ }
+ 
+ func isCpusetListAvailable(provided, available string) (bool, error) {
++	if err := checkCPU(provided, available); err != nil {
++		if strings.Contains(err.Error(), "invalid format") {
++			return false, err
++		}
++		return false, nil
++	}
++
+ 	parsedAvailable, err := parsers.ParseUintList(available)
+ 	if err != nil {
+ 		return false, err
+@@ -147,6 +160,55 @@ func isCpusetListAvailable(provided, available string) (bool, error) {
+ 	return true, nil
+ }
+ 
++func checkCPU(provided, available string) error {
++	if provided == "" {
++		return nil
++	}
++
++	maxAvailable, err := maxCPU(available)
++	if err != nil {
++		return err
++	}
++
++	maxRequest, err := maxCPU(provided)
++	if err != nil {
++		return err
++	}
++
++	if maxRequest > maxAvailable {
++		return fmt.Errorf("invalid maxRequest is %d, max available: %d", maxRequest, maxAvailable)
++	}
++
++	return nil
++}
++
++func maxCPU(cores string) (int, error) {
++	var max int
++	split := strings.Split(cores, ",")
++	errInvalidFormat := fmt.Errorf("invalid format: %s", cores)
++	for _, r := range split {
++		if !strings.Contains(r, "-") {
++			v, err := strconv.Atoi(r)
++			if err != nil {
++				return max, errInvalidFormat
++			}
++			if v > max {
++				max = v
++			}
++		} else {
++			split := strings.SplitN(r, "-", 2)
++			end, err := strconv.Atoi(split[1])
++			if err != nil {
++				return max, errInvalidFormat
++			}
++			if end > max {
++				max = end
++			}
++		}
++	}
++	return max, nil
++}
++
+ // Returns bit count of 1, used by NumCPU
+ func popcnt(x uint64) (n byte) {
+ 	x -= (x >> 1) & 0x5555555555555555
+-- 
+2.17.1
+

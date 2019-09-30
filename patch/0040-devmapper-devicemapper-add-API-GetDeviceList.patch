@@ -1,0 +1,166 @@
+From 9df99e9c4b27a3ccfae5f9b5b285784aeaaf1ac9 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 7 Jan 2019 13:36:04 +0800
+Subject: [PATCH 040/111] devmapper:  devicemapper: add API
+ GetDeviceList
+
+reason: cherry-pick commits to docker-18.09
+
+cherry-pick from 58fa445402 * devicemapper: add API GetDeviceList
+
+Change-Id: Ia52611b75f12179bbe2e718e1b8575f0825d5dd7
+Signed-off-by: Wang Long <long.wanglong@huawei.com>
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../engine/pkg/devicemapper/devmapper.go      | 21 ++++++
+ .../pkg/devicemapper/devmapper_wrapper.go     | 67 +++++++++++++++++++
+ 2 files changed, 88 insertions(+)
+
+diff --git a/components/engine/pkg/devicemapper/devmapper.go b/components/engine/pkg/devicemapper/devmapper.go
+index b384a27f8f..06ddc3e96b 100644
+--- a/components/engine/pkg/devicemapper/devmapper.go
++++ b/components/engine/pkg/devicemapper/devmapper.go
+@@ -55,6 +55,7 @@ var (
+ 	ErrTaskGetDeps          = errors.New("dm_task_get_deps failed")
+ 	ErrTaskGetInfo          = errors.New("dm_task_get_info failed")
+ 	ErrTaskGetDriverVersion = errors.New("dm_task_get_driver_version failed")
++	ErrTaskGetNames         = errors.New("dm_task_get_names failed")
+ 	ErrTaskDeferredRemove   = errors.New("dm_task_deferred_remove failed")
+ 	ErrTaskSetCookie        = errors.New("dm_task_set_cookie failed")
+ 	ErrNilCookie            = errors.New("cookie ptr can't be nil")
+@@ -241,6 +242,14 @@ func (t *Task) getInfoWithDeferred() (*Info, error) {
+ 	return info, nil
+ }
+ 
++func (t *Task) getDeviceList() ([]string, error) {
++	res := DmTaskGetNames(t.unmanaged)
++	if res == nil {
++		return nil, ErrTaskGetNames
++	}
++	return res, nil
++}
++
+ func (t *Task) getDriverVersion() (string, error) {
+ 	res := DmTaskGetDriverVersion(t.unmanaged)
+ 	if res == "" {
+@@ -569,6 +578,18 @@ func GetInfoWithDeferred(name string) (*Info, error) {
+ 	return task.getInfoWithDeferred()
+ }
+ 
++// GetDevices get all device name
++func GetDeviceList() ([]string, error) {
++	task := TaskCreate(deviceList)
++	if task == nil {
++		return nil, fmt.Errorf("devicemapper: Can't create deviceList task")
++	}
++	if err := task.run(); err != nil {
++		return nil, err
++	}
++	return task.getDeviceList()
++}
++
+ // GetDriverVersion is the programmatic example of "dmsetup version".
+ // It outputs version information of the driver.
+ func GetDriverVersion() (string, error) {
+diff --git a/components/engine/pkg/devicemapper/devmapper_wrapper.go b/components/engine/pkg/devicemapper/devmapper_wrapper.go
+index 77cd674a09..3b00a3b54b 100644
+--- a/components/engine/pkg/devicemapper/devmapper_wrapper.go
++++ b/components/engine/pkg/devicemapper/devmapper_wrapper.go
+@@ -6,6 +6,9 @@ package devicemapper // import "github.com/docker/docker/pkg/devicemapper"
+ #define _GNU_SOURCE
+ #include <libdevmapper.h>
+ #include <linux/fs.h>   // FIXME: present only for BLKGETSIZE64, maybe we can remove it?
++#include <string.h>
++#include <stdlib.h>
++
+ 
+ // FIXME: Can't we find a way to do the logging in pure Go?
+ extern void DevmapperLogCallback(int level, char *file, int line, int dm_errno_or_class, char *str);
+@@ -32,6 +35,51 @@ static void	log_with_errno_init()
+ {
+ 	dm_log_with_errno_init(log_cb);
+ }
++
++// FIXME: how to use dm_task_get_names directly
++static char **local_dm_task_get_names(struct dm_task *dmt, unsigned int *size) {
++	struct dm_names *ns, *ns1;
++	unsigned next = 0;
++	char **result;
++	int i = 0;
++
++	if (!(ns = dm_task_get_names(dmt)))
++		return NULL;
++
++	// No devices found
++	if (!ns->dev)
++		return NULL;
++
++	// calucate the total devices
++	ns1 = ns;
++	*size = 0;
++	do {
++		ns1 = (struct dm_names *)((char *) ns1 + next);
++		(*size)++;
++		next = ns1->next;
++	} while (next);
++
++	result = malloc(sizeof(char *)* (*size));
++	if (!result)
++		return NULL;
++
++	next = 0;
++	do {
++		ns = (struct dm_names *)((char *) ns + next);
++		result[i++] = strdup(ns->name);
++		next = ns->next;
++	} while (next);
++
++	return result;
++}
++
++void free_devices_names(char **names, unsigned int size) {
++	int i;
++
++	for (i = 0; i < size; i++)
++		free(names[i]);
++	free(names);
++}
+ */
+ import "C"
+ 
+@@ -69,6 +117,7 @@ var (
+ 	DmTaskGetDeps             = dmTaskGetDepsFct
+ 	DmTaskGetInfo             = dmTaskGetInfoFct
+ 	DmTaskGetDriverVersion    = dmTaskGetDriverVersionFct
++	DmTaskGetNames            = dmTaskGetNamesFct
+ 	DmTaskRun                 = dmTaskRunFct
+ 	DmTaskSetAddNode          = dmTaskSetAddNodeFct
+ 	DmTaskSetCookie           = dmTaskSetCookieFct
+@@ -190,6 +239,24 @@ func dmTaskGetInfoFct(task *cdmTask, info *Info) int {
+ 	return int(C.dm_task_get_info((*C.struct_dm_task)(task), &Cinfo))
+ }
+ 
++func dmTaskGetNamesFct(task *cdmTask) []string {
++	var res []string
++	var names []*C.char
++	len := C.uint(0)
++	Cnames := C.local_dm_task_get_names((*C.struct_dm_task)(task), &len)
++	defer C.free_devices_names(Cnames, len)
++
++	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&names))
++	hdr.Cap = int(len)
++	hdr.Len = int(len)
++	hdr.Data = uintptr(unsafe.Pointer(Cnames))
++
++	for _, name := range names {
++		res = append(res, C.GoString(name))
++	}
++	return res
++}
++
+ func dmTaskGetDriverVersionFct(task *cdmTask) string {
+ 	buffer := C.malloc(128)
+ 	defer C.free(buffer)
+-- 
+2.17.1
+

@@ -1,0 +1,26 @@
+From f183e106c38722ba8b02d0ad6da9d8368073a020 Mon Sep 17 00:00:00 2001
+From: yangfeiyu2 <yangfeiyu2@huawei.com>
+Date: Mon, 1 Jul 2019 01:14:50 -0400
+Subject: [PATCH] docker:  continue to check healthy instead of return when setup ExitOnUnhealthy.
+
+
+Signed-off-by: yangfeiyu2 <yangfeiyu2@huawei.com>
+---
+ components/engine/daemon/health.go | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/components/engine/daemon/health.go b/components/engine/daemon/health.go
+index 80bda66..5f26ee5 100644
+--- a/components/engine/daemon/health.go
++++ b/components/engine/daemon/health.go
+@@ -245,7 +245,6 @@ func monitor(d *Daemon, c *container.Container, stop chan struct{}, probe probe)
+ 				c.Config.Healthcheck.ExitOnUnhealthy == true {
+ 				d.Kill(c)
+ 				logrus.Debugf("Shut down container %s because of unhealthy", c.ID)
+-				return
+ 			}
+ 		}
+ 	}
+-- 
+1.8.3.1
+

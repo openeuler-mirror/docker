@@ -1,0 +1,62 @@
+From 80aa68c35d6199d80a136f480ac8a7fa9ef9146d Mon Sep 17 00:00:00 2001
+From: lixiang <lixiang172@huawei.com>
+Date: Tue, 17 Sep 2019 22:58:07 +0800
+Subject: [PATCH] docker: mask some path in contianer
+
+reason: for security reason, we masked the following path to prevent
+hackers obtaining the access to the important path on host os.
+/proc/cpuirqstat
+/proc/memstat
+/proc/iomem_ext
+/proc/livepatch
+/proc/net_namespace
+
+Change-Id: I394f75e8a277983ad94018e8d51bbddda0f357d7
+Signed-off-by: lixiang <lixiang172@huawei.com>
+---
+ components/engine/oci/defaults.go | 23 ++++++++++++++---------
+ 1 file changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index 74d3fdb..cd4985f 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -117,21 +117,26 @@ func DefaultLinuxSpec() specs.Spec {
+ 		MaskedPaths: []string{
+ 			"/proc/acpi",
+ 			"/proc/config.gz",
++			"/proc/cpuirqstat",
++			"/proc/fdenable",
++			"/proc/fdstat",
++			"/proc/fdthreshold",
++			"/proc/files_panic_enable",
++			"/proc/iomem_ext",
++			"/proc/kbox",
+ 			"/proc/kcore",
+ 			"/proc/keys",
+ 			"/proc/latency_stats",
+-			"/proc/timer_list",
+-			"/proc/timer_stats",
++			"/proc/livepatch",
++			"/proc/memstat",
++			"/proc/net_namespace",
++			"/proc/oom_extend",
+ 			"/proc/sched_debug",
+ 			"/proc/scsi",
+-			"/proc/files_panic_enable",
+-			"/proc/fdthreshold",
+-			"/proc/fdstat",
+-			"/proc/fdenable",
+-			"/proc/signo",
+ 			"/proc/sig_catch",
+-			"/proc/kbox",
+-			"/proc/oom_extend",
++			"/proc/signo",
++			"/proc/timer_list",
++			"/proc/timer_stats",
+ 			"/sys/firmware",
+ 		},
+ 		ReadonlyPaths: []string{
+-- 
+1.8.3.1
+

@@ -1,0 +1,46 @@
+From 9074b27c256b5a65883be587c8637dc3926016eb Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 9 Apr 2019 16:42:47 +0800
+Subject: [PATCH] docker:  mask internal proc files
+
+Change-Id: I249d3f32bac586c37f97f0861afda0ddbfd7561e
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../github.com/containerd/containerd/oci/spec.go   | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/components/cli/vendor/github.com/containerd/containerd/oci/spec.go b/components/cli/vendor/github.com/containerd/containerd/oci/spec.go
+index 6fb31e454c..bc5cc45c16 100644
+--- a/components/cli/vendor/github.com/containerd/containerd/oci/spec.go
++++ b/components/cli/vendor/github.com/containerd/containerd/oci/spec.go
+@@ -208,14 +208,26 @@ func populateDefaultUnixSpec(ctx context.Context, s *Spec, id string) error {
+ 		Linux: &specs.Linux{
+ 			MaskedPaths: []string{
+ 				"/proc/acpi",
++				"/proc/config.gz",
+ 				"/proc/kcore",
+ 				"/proc/keys",
+ 				"/proc/latency_stats",
+ 				"/proc/timer_list",
+ 				"/proc/timer_stats",
+ 				"/proc/sched_debug",
+-				"/sys/firmware",
+ 				"/proc/scsi",
++				"/proc/signo",
++				"/proc/sig_catch",
++				"/proc/kbox",
++				"/proc/oom_extend",
++				"/proc/fdthreshold",
++				"/proc/fdstat",
++				"/proc/fdenable",
++				"/proc/files_panic_enable",
++				"/sys/firmware",
++				"/proc/cpuirqstat",
++				"/proc/memstat",
++				"/proc/iomem_ext",
+ 			},
+ 			ReadonlyPaths: []string{
+ 				"/proc/asound",
+-- 
+2.17.1
+

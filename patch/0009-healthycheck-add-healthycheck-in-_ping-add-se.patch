@@ -1,0 +1,128 @@
+From c03a609c9bb837d8f361888460c7a605dc1219d6 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:15:11 +0800
+Subject: [PATCH 009/111] healthycheck:  add healthycheck in _ping &
+ add semaphore set info in docker info
+
+reason: add healthycheck in _ping & add semaphore set info in docker info
+
+Change-Id: I90b3def5fa8bcf0e21090471c43c6309e58c26aa
+Signed-off-by: liruilin4 <liruilin4@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ .../api/server/router/system/backend.go       |  1 +
+ .../api/server/router/system/system_routes.go |  2 ++
+ .../daemon/graphdriver/devmapper/driver.go    |  7 ++++++
+ components/engine/daemon/info.go              | 10 ++++++++
+ components/engine/utils/utils.go              | 23 +++++++++++++++++++
+ 5 files changed, 43 insertions(+)
+ create mode 100644 components/engine/utils/utils.go
+
+diff --git a/components/engine/api/server/router/system/backend.go b/components/engine/api/server/router/system/backend.go
+index f5d2d98101..2ba5ab774b 100644
+--- a/components/engine/api/server/router/system/backend.go
++++ b/components/engine/api/server/router/system/backend.go
+@@ -19,6 +19,7 @@ type Backend interface {
+ 	SubscribeToEvents(since, until time.Time, ef filters.Args) ([]events.Message, chan interface{})
+ 	UnsubscribeFromEvents(chan interface{})
+ 	AuthenticateToRegistry(ctx context.Context, authConfig *types.AuthConfig) (string, string, error)
++	HealthyCheck()
+ }
+ 
+ // ClusterBackend is all the methods that need to be implemented
+diff --git a/components/engine/api/server/router/system/system_routes.go b/components/engine/api/server/router/system/system_routes.go
+index a2ff692de3..f235acc657 100644
+--- a/components/engine/api/server/router/system/system_routes.go
++++ b/components/engine/api/server/router/system/system_routes.go
+@@ -31,6 +31,8 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
+ 	if bv := builderVersion; bv != "" {
+ 		w.Header().Set("Builder-Version", string(bv))
+ 	}
++
++	s.backend.HealthyCheck()
+ 	_, err := w.Write([]byte{'O', 'K'})
+ 	return err
+ }
+diff --git a/components/engine/daemon/graphdriver/devmapper/driver.go b/components/engine/daemon/graphdriver/devmapper/driver.go
+index 899b1f8670..623843f852 100644
+--- a/components/engine/daemon/graphdriver/devmapper/driver.go
++++ b/components/engine/daemon/graphdriver/devmapper/driver.go
+@@ -15,6 +15,7 @@ import (
+ 	"github.com/docker/docker/pkg/idtools"
+ 	"github.com/docker/docker/pkg/locker"
+ 	"github.com/docker/docker/pkg/mount"
++	"github.com/docker/docker/utils"
+ 	"github.com/docker/go-units"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
+@@ -101,6 +102,12 @@ func (d *Driver) Status() [][2]string {
+ 	if vStr, err := devicemapper.GetLibraryVersion(); err == nil {
+ 		status = append(status, [2]string{"Library Version", vStr})
+ 	}
++	usz, mni, err := utils.CheckSemSetStat()
++	status = append(status, [2]string{"Semaphore Set Used", fmt.Sprintf("%d", usz)})
++	status = append(status, [2]string{"Semaphore Set Total", fmt.Sprintf("%d", mni)})
++	if err != nil {
++		status = append(status, [2]string{"WARNING", fmt.Sprintf("%v", err)})
++	}
+ 	return status
+ }
+ 
+diff --git a/components/engine/daemon/info.go b/components/engine/daemon/info.go
+index bf84342b54..262719d9d1 100644
+--- a/components/engine/daemon/info.go
++++ b/components/engine/daemon/info.go
+@@ -20,6 +20,7 @@ import (
+ 	"github.com/docker/docker/pkg/sysinfo"
+ 	"github.com/docker/docker/pkg/system"
+ 	"github.com/docker/docker/registry"
++	"github.com/docker/docker/utils"
+ 	"github.com/docker/go-connections/sockets"
+ 	"github.com/sirupsen/logrus"
+ )
+@@ -256,3 +257,12 @@ func maskCredentials(rawURL string) string {
+ 	maskedURL := parsedURL.String()
+ 	return maskedURL
+ }
++
++func (daemon *Daemon) HealthyCheck() {
++	if daemon.imageService.GraphDriverForOS(runtime.GOOS) == "devicemapper" {
++		_, _, err := utils.CheckSemSetStat()
++		if err != nil {
++			logrus.Warn(err)
++		}
++	}
++}
+diff --git a/components/engine/utils/utils.go b/components/engine/utils/utils.go
+new file mode 100644
+index 0000000000..75fd409399
+--- /dev/null
++++ b/components/engine/utils/utils.go
+@@ -0,0 +1,23 @@
++package utils
++
++/*
++#include <sys/types.h>
++#include <sys/sem.h>
++int mysemctl(int cmd, struct seminfo *p){
++	return semctl(0, 0, cmd, p);
++}
++*/
++import "C"
++import (
++	"fmt"
++)
++
++func CheckSemSetStat() (int, int, error) {
++	var seminfo *C.struct_seminfo = new(C.struct_seminfo)
++	C.mysemctl(C.SEM_INFO, seminfo)
++	var err error = nil
++	if seminfo.semusz == seminfo.semmni {
++		err = fmt.Errorf("system semaphore nums has attached limit: %d", int(seminfo.semusz))
++	}
++	return int(seminfo.semusz), int(seminfo.semmni), err
++}
+-- 
+2.17.1
+

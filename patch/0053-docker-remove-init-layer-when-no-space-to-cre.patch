@@ -1,0 +1,46 @@
+From 2afc35ae4a34d70007bccb971d1f074574a3e282 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Thu, 17 Jan 2019 20:13:18 +0800
+Subject: [PATCH 053/111] docker:  remove init layer when no space to
+ create RW layer
+
+reason:remove init layer when no space to create RW layer
+
+Cherry-pick from docker 1.11.2:
+- 24d00cf remove init layer when no space to create RW layer
+
+Change-Id: I3ef9fa1073c12242f5f56997883fe831d9497a9a
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ components/engine/layer/layer_store.go | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index 7c80a29645..20c0195b79 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -598,6 +598,20 @@ func (ls *layerStore) CreateRWLayer(name string, parent ChainID, opts *CreateRWL
+ 		// Release parent chain if error
+ 		defer func() {
+ 			if err != nil {
++				m.Lock()
++				if err := ls.driver.Remove(m.mountID); err != nil {
++					logrus.Errorf("Error removing mounted layer during create rw layer %s: %s", m.name, err)
++				}
++				if m.initID != "" {
++					if err := ls.driver.Remove(m.initID); err != nil {
++						logrus.Errorf("Error removing init layer during create rw layer %s: %s", m.name, err)
++					}
++				}
++				if err := ls.store.RemoveMount(m.name); err != nil {
++					logrus.Errorf("Error removing mount metadata during create rw layer %s: %s", m.name, err)
++				}
++				m.Unlock()
++
+ 				ls.layerL.Lock()
+ 				ls.releaseLayer(p)
+ 				ls.layerL.Unlock()
+-- 
+2.17.1
+

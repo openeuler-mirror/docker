@@ -1,0 +1,39 @@
+From 1bb39edbf403bf31aaece61510b43d9a6e781f7d Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 21 Jan 2019 17:57:03 +0800
+Subject: [PATCH 070/111] test:  fix umask make syscall-test failed
+
+reason: set umask 0022 make sure add file's mode to image syscall-test
+as exepected, so user has permission to exec.
+
+Change-Id: Iaad1bc328c81b77aa630bcb9f974aeee3a50ecbf
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../engine/integration-cli/fixtures_linux_daemon_test.go      | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/components/engine/integration-cli/fixtures_linux_daemon_test.go b/components/engine/integration-cli/fixtures_linux_daemon_test.go
+index 2387a9ebee..7be3c8b185 100644
+--- a/components/engine/integration-cli/fixtures_linux_daemon_test.go
++++ b/components/engine/integration-cli/fixtures_linux_daemon_test.go
+@@ -9,6 +9,7 @@ import (
+ 	"runtime"
+ 	"strings"
+ 	"sync"
++	"syscall"
+ 
+ 	"github.com/docker/docker/integration-cli/checker"
+ 	"github.com/docker/docker/internal/test/fixtures/load"
+@@ -28,6 +29,9 @@ var ensureSyscallTestOnce sync.Once
+ 
+ func ensureSyscallTest(c *check.C) {
+ 	var doIt bool
++	mask := syscall.Umask(0022)
++	defer syscall.Umask(mask)
++
+ 	ensureSyscallTestOnce.Do(func() {
+ 		doIt = true
+ 	})
+-- 
+2.17.1
+

@@ -1,0 +1,57 @@
+From 40c55ba190f46487686d6131b0005737d8bd06af Mon Sep 17 00:00:00 2001
+From: jiangpengfei9 <jiangpengfei9@huawei.com>
+Date: Fri, 15 Feb 2019 14:13:47 -0500
+Subject: [PATCH 102/111] docker-18.09: fix docker stop error if docker
+ has been stopped
+
+reason: If docker stop send SIGTERM signal to stop container failed, it will wait a short time
+and send SIGKILL signal to kill container, but if container has exit while docker stop send
+SIGKILL to container, which will cause an error which is "Container %s is not running".So if
+docker stop meet this problem, we just let it go and print the warning log.
+
+Change-Id: Ia832aa93c3a94086849cda70110eb772ac3c0a52
+Signed-off-by: jiangpengfei9 <jiangpengfei9@huawei.com>
+---
+ components/engine/daemon/kill.go                            | 6 ++++--
+ components/engine/daemon/stop.go                            | 1 +
+ 6 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index 5b2e497604..d185065b54 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -72,7 +72,8 @@ func (daemon *Daemon) killWithSignal(container *containerpkg.Container, sig int)
+ 	}
+ 
+ 	if !container.Running {
+-		return errNotRunning(container.ID)
++		logrus.Warnf("killWithSignal skip send kill signal to container %s due to container has been stopped",container.ID)
++		return nil
+ 	}
+ 
+ 	var unpause bool
+@@ -127,7 +128,8 @@ func (daemon *Daemon) killWithSignal(container *containerpkg.Container, sig int)
+ // Kill forcefully terminates a container.
+ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 	if !container.IsRunning() {
+-		return errNotRunning(container.ID)
++		logrus.Warnf("Kill skip send kill signal to container %s due to container has been stopped",container.ID)
++		return nil
+ 	}
+ 
+ 	// 1. Send SIGKILL
+diff --git a/components/engine/daemon/stop.go b/components/engine/daemon/stop.go
+index c3ac09056a..3c4cd766c9 100644
+--- a/components/engine/daemon/stop.go
++++ b/components/engine/daemon/stop.go
+@@ -45,6 +45,7 @@ func (daemon *Daemon) containerStop(container *containerpkg.Container, seconds i
+ 	stopSignal := container.StopSignal()
+ 	// 1. Send a stop signal
+ 	if err := daemon.killPossiblyDeadProcess(container, stopSignal); err != nil {
++		logrus.Infof("docker send %d signal to stop container get error: %v", stopSignal, err)
+ 		// While normally we might "return err" here we're not going to
+ 		// because if we can't stop the container by this point then
+ 		// it's probably because it's already stopped. Meaning, between
+-- 
+2.17.1
+

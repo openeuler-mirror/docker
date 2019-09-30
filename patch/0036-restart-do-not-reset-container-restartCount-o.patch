@@ -1,0 +1,41 @@
+From af5045eb5d9cc84afeace447e2bf3e1571866f4d Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 16:52:39 +0800
+Subject: [PATCH 036/111] restart:  do not reset container restartCount
+ on boot
+
+reason: cherry-pick commits to docker-18.09
+
+when daemon restart, container's RestartCount will be reseted to 0
+    this is cherry-picked from docker
+    commit:3bffccc719bf8237ce78af8b88aaa7757f43795a
+    Signed-off-by: dengguangxing <dengguangxing@huawei.com>
+
+cherry-pick from 1.11.2: d5292e3
+
+Conflicts:
+        daemon/daemon.go
+
+Change-Id: I2276e9d075b593b74e4b17c0f8e48a2dec3e6f4c
+Signed-off-by: xueshaojia <xueshaojia@huawei.com>
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/engine/daemon/daemon.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 4546587369..a058688dd3 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -532,7 +532,7 @@ func (daemon *Daemon) restore() error {
+ 
+ 			// Make sure networks are available before starting
+ 			daemon.waitForNetworks(c)
+-			if err := daemon.containerStart(c, "", "", true); err != nil {
++			if err := daemon.containerStart(c, "", "", false); err != nil {
+ 				logrus.Errorf("Failed to start container %s: %s", c.ID, err)
+ 			}
+ 			close(chNotify)
+-- 
+2.17.1
+

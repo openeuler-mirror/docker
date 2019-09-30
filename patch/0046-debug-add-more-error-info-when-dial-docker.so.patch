@@ -1,0 +1,57 @@
+From 024a67b1d7ccfa85bba14318cd4fbbe78ecc8b7e Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 10 Jan 2019 00:17:01 +0800
+Subject: [PATCH 046/111] debug:  add more error info when dial
+ docker.sock fail
+
+reason: cherry-pick commits to docker-18.09
+
+add more error info when dial docker.sock fail
+
+cherry-pick from 1.11.2: 91c7491
+
+Change-Id: I3c7219d44be752ecde92479f03c0e2cee3ccb4a0
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+---
+ components/engine/client/request.go | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/client/request.go b/components/engine/client/request.go
+index a19d62aa52..855b84d6ac 100644
+--- a/components/engine/client/request.go
++++ b/components/engine/client/request.go
+@@ -10,6 +10,7 @@ import (
+ 	"net"
+ 	"net/http"
+ 	"net/url"
++	"regexp"
+ 	"os"
+ 	"strings"
+ 
+@@ -156,11 +157,19 @@ func (cli *Client) doRequest(ctx context.Context, req *http.Request) (serverResp
+ 
+ 		if err, ok := err.(net.Error); ok {
+ 			if err.Timeout() {
+-				return serverResp, ErrorConnectionFailed(cli.host)
++				return serverResp, fmt.Errorf("Cannot connect to the Docker daemon failed for timeout.")
+ 			}
+ 			if !err.Temporary() {
+-				if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "dial unix") {
+-					return serverResp, ErrorConnectionFailed(cli.host)
++				if strings.Contains(err.Error(), "dial unix") {
++					var err2 error
++					r, rerr := regexp.Compile("dial unix.*")
++					if rerr != nil {
++						err2 = fmt.Errorf("Cannot connect to the Docker daemon failed for dial unix.")
++					} else {
++						rbytes := r.Find([]byte(err.Error()))
++						err2 = fmt.Errorf("Cannot connect to the Docker daemon failed for %s", string(rbytes))
++					}
++					return serverResp, err2
+ 				}
+ 			}
+ 		}
+-- 
+2.17.1
+

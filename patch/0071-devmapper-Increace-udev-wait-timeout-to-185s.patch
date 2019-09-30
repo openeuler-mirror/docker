@@ -1,0 +1,44 @@
+From 6a40d11a3bc9be18cb50fb86099ff52a6d459335 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 21 Jan 2019 18:57:43 +0800
+Subject: [PATCH 071/111] devmapper:  Increace udev wait timeout to
+ 185s
+
+reason: cherry-pick commits to docker-18.09
+
+cherry-pick e89615bd40c32f95d095c17efaf5258b15543080 from docker-1.11.2
+
+    The default time out of latest systemd-udevd on RTOS and EulerOS
+    is 180s, we use 185s. Even if the time out of systemd-udevd is 30s,
+    set 185s on docker side is also safe, it will just take a longer time
+    to return when time out really happen, we should make sure the timeout
+    on docker side is bigger than the timeout on systemd-udevd.
+
+    Signed-off-by: Lei Jitang <leijitang@huawei.com>
+
+Change-Id: I05d722f22a0c7728ae1bbe23ab67c567d1694b67
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/graphdriver/devmapper/deviceset.go | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index f4dc589c6e..f5c0b044c4 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -42,9 +42,9 @@ var (
+ 	defaultUdevSyncOverride            = false
+ 	maxDeviceID                        = 0xffffff // 24 bit, pool limit
+ 	deviceIDMapSz                      = (maxDeviceID + 1) / 8
+-	// The default timeout is 30s from `man systemd-udevd`, we use 35
+-	// just to make sure the timeout really happened in systemd-udevd
+-	defaultUdevWaitTimeout              = 35
++	// The default timeout for latest systemd on RTOS and EulerOS is 180s
++	// we use 185s to make sure the timeout really happened.
++	defaultUdevWaitTimeout              = 185
+ 	driverDeferredRemovalSupport        = false
+ 	enableDeferredRemoval               = false
+ 	enableDeferredDeletion              = false
+-- 
+2.17.1
+

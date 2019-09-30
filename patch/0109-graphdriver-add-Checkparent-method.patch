@@ -1,0 +1,199 @@
+From f3867c1d93f375441eda73a0c6cb4669fc75f660 Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Sat, 23 Feb 2019 14:39:34 +0800
+Subject: [PATCH 109/111] graphdriver:  add Checkparent method
+
+reason:Use this method to checkout the relationship between
+a layer and this parent. It is very useful if graphdriver
+stores methdata in its own dirs.
+
+Change-Id: I07ebe752eb58bc2a027f8a93568b498ad8603713
+Signed-off-by: Liu Hua <sdu.liu@huawei.com>
+Signed-off-by: Deng Guangxing <dengguangxing@huawei.com>
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ .../engine/daemon/graphdriver/aufs/aufs.go     |  5 +++++
+ .../engine/daemon/graphdriver/btrfs/btrfs.go   |  5 +++++
+ .../daemon/graphdriver/devmapper/driver.go     |  5 +++++
+ components/engine/daemon/graphdriver/driver.go |  2 ++
+ .../daemon/graphdriver/overlay/overlay.go      |  5 +++++
+ .../daemon/graphdriver/overlay2/overlay.go     | 18 ++++++++++++++++++
+ components/engine/daemon/graphdriver/proxy.go  |  5 +++++
+ .../engine/daemon/graphdriver/vfs/driver.go    |  5 +++++
+ .../engine/daemon/graphdriver/zfs/zfs.go       |  5 +++++
+ components/engine/layer/layer_store.go         |  5 +++++
+ 10 files changed, 60 insertions(+)
+
+diff --git a/components/engine/daemon/graphdriver/aufs/aufs.go b/components/engine/daemon/graphdriver/aufs/aufs.go
+index 303138d48a..eef8387594 100644
+--- a/components/engine/daemon/graphdriver/aufs/aufs.go
++++ b/components/engine/daemon/graphdriver/aufs/aufs.go
+@@ -235,6 +235,11 @@ func (a *Driver) GetAll() []string {
+ 	return []string{}
+ }
+ 
++// CheckParent not implemented
++func (a *Driver) CheckParent(id, parent string) error {
++	return nil
++}
++
+ // CreateReadWrite creates a layer that is writable for use as a container
+ // file system.
+ func (a *Driver) CreateReadWrite(id, parent string, opts *graphdriver.CreateOpts) error {
+diff --git a/components/engine/daemon/graphdriver/btrfs/btrfs.go b/components/engine/daemon/graphdriver/btrfs/btrfs.go
+index d04ce10be9..7d1f9dc2b1 100644
+--- a/components/engine/daemon/graphdriver/btrfs/btrfs.go
++++ b/components/engine/daemon/graphdriver/btrfs/btrfs.go
+@@ -172,6 +172,11 @@ func (a *Driver) GetAll() []string {
+ 	return []string{}
+ }
+ 
++// CheckParent not implemented
++func (d *Driver) CheckParent(id, parent string) error {
++	return nil
++}
++
+ // Cleanup unmounts the home directory.
+ func (d *Driver) Cleanup() error {
+ 	err := d.subvolDisableQuota()
+diff --git a/components/engine/daemon/graphdriver/devmapper/driver.go b/components/engine/daemon/graphdriver/devmapper/driver.go
+index a56b26bc8f..1eade3aba5 100644
+--- a/components/engine/daemon/graphdriver/devmapper/driver.go
++++ b/components/engine/daemon/graphdriver/devmapper/driver.go
+@@ -131,6 +131,11 @@ func (a *Driver) GetAll() []string {
+ 	return []string{}
+ }
+ 
++// CheckParent not implemented
++func (d *Driver) CheckParent(id, parent string) error {
++	return nil
++}
++
+ // Cleanup unmounts a device.
+ func (d *Driver) Cleanup() error {
+ 	err := d.DeviceSet.Shutdown(d.home)
+diff --git a/components/engine/daemon/graphdriver/driver.go b/components/engine/daemon/graphdriver/driver.go
+index 672257a9b5..9976571cde 100644
+--- a/components/engine/daemon/graphdriver/driver.go
++++ b/components/engine/daemon/graphdriver/driver.go
+@@ -80,6 +80,8 @@ type ProtoDriver interface {
+ 	Cleanup() error
+ 	// GetAll returns all the mountid exists in this driver
+ 	GetAll() []string
++	// CheckParent checks whether the parent is the right lower layer
++	CheckParent(id, parent string) error
+ }
+ 
+ // DiffDriver is the interface to use to implement graph diffs
+diff --git a/components/engine/daemon/graphdriver/overlay/overlay.go b/components/engine/daemon/graphdriver/overlay/overlay.go
+index d59a6dfc83..7dbeec5376 100644
+--- a/components/engine/daemon/graphdriver/overlay/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay/overlay.go
+@@ -276,6 +276,11 @@ func (d *Driver) Cleanup() error {
+ 	return mount.RecursiveUnmount(d.home)
+ }
+ 
++// CheckParent not implemented
++func (d *Driver) CheckParent(id, parent string) error {
++	return nil
++}
++
+ // CreateReadWrite creates a layer that is writable for use as a container
+ // file system.
+ func (d *Driver) CreateReadWrite(id, parent string, opts *graphdriver.CreateOpts) error {
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 1a3c9c9d67..7fd3fab645 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -360,6 +360,24 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 	return metadata, nil
+ }
+ 
++// CheckParent checks the relationship between id and parent
++func (d *Driver) CheckParent(id, parent string) error {
++	metadata, err := d.GetMetadata(id)
++	if err != nil {
++		return err
++	}
++	lowerDirs, exist := metadata["LowerDir"]
++	if !exist {
++		return fmt.Errorf("%s does not have lower layers", id)
++	}
++
++	if !strings.Contains(lowerDirs, parent) {
++		return fmt.Errorf("Lower layer(%s) of %s does not exist", parent, id)
++	}
++	return nil
++
++}
++
+ // Cleanup any state created by overlay which should be cleaned when daemon
+ // is being shutdown. For now, we just have to unmount the bind mounted
+ // we had created.
+diff --git a/components/engine/daemon/graphdriver/proxy.go b/components/engine/daemon/graphdriver/proxy.go
+index 6c132d40a8..990f9b4d4e 100644
+--- a/components/engine/daemon/graphdriver/proxy.go
++++ b/components/engine/daemon/graphdriver/proxy.go
+@@ -96,6 +96,11 @@ func (d *graphDriverProxy) GetAll() []string {
+ 	return []string{}
+ }
+ 
++// CheckParent not implemented
++func (a *graphDriverProxy) CheckParent(id, parent string) error {
++	return nil
++}
++
+ func (d *graphDriverProxy) CreateReadWrite(id, parent string, opts *CreateOpts) error {
+ 	return d.create("GraphDriver.CreateReadWrite", id, parent, opts)
+ }
+diff --git a/components/engine/daemon/graphdriver/vfs/driver.go b/components/engine/daemon/graphdriver/vfs/driver.go
+index 8c2947d9ee..6b9e92e16c 100644
+--- a/components/engine/daemon/graphdriver/vfs/driver.go
++++ b/components/engine/daemon/graphdriver/vfs/driver.go
+@@ -69,6 +69,11 @@ func (a *Driver) GetAll() []string {
+ 	return []string{}
+ }
+ 
++// CheckParent not implemented
++func (d *Driver) CheckParent(id, parent string) error {
++	return nil
++}
++
+ // Cleanup is used to implement graphdriver.ProtoDriver. There is no cleanup required for this driver.
+ func (d *Driver) Cleanup() error {
+ 	return nil
+diff --git a/components/engine/daemon/graphdriver/zfs/zfs.go b/components/engine/daemon/graphdriver/zfs/zfs.go
+index e1e2d0d823..e5958093db 100644
+--- a/components/engine/daemon/graphdriver/zfs/zfs.go
++++ b/components/engine/daemon/graphdriver/zfs/zfs.go
+@@ -232,6 +232,11 @@ func (a *Driver) GetAll() []string {
+ 	return []string{}
+ }
+ 
++// CheckParent not implemented
++func (d *Driver) CheckParent(id, parent string) error {
++	return nil
++}
++
+ func (d *Driver) cloneFilesystem(name, parentName string) error {
+ 	snapshotName := fmt.Sprintf("%d", time.Now().Nanosecond())
+ 	parentDataset := zfs.Dataset{Name: parentName}
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index b6fc45e655..c514ed802a 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -192,6 +192,11 @@ func (ls *layerStore) loadLayer(layer ChainID) (l *roLayer, err error) {
+ 		if err != nil {
+ 			return nil, err
+ 		}
++
++		err = ls.driver.CheckParent(cacheID, p.cacheID)
++		if err != nil {
++			return nil, err
++		}
+ 		cl.parent = p
+ 	} else {
+ 		_, err := ls.driver.GetMetadata(cacheID)
+-- 
+2.17.1
+

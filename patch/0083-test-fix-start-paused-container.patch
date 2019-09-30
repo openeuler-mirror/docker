@@ -1,0 +1,32 @@
+From 3e2f675c4e55a73e9ac2ae7b6c0dfca8d37dd9d8 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 24 Jan 2019 16:20:24 +0800
+Subject: [PATCH 083/111] test:  fix start paused container
+
+reason: please unpause before start.
+
+Change-Id: I435ab7e5cfe4aaed8c6c4e502ca64b0c65fff6a5
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/integration-cli/docker_cli_daemon_test.go | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/integration-cli/docker_cli_daemon_test.go b/components/engine/integration-cli/docker_cli_daemon_test.go
+index d3cd5f1676..02c42c22e2 100644
+--- a/components/engine/integration-cli/docker_cli_daemon_test.go
++++ b/components/engine/integration-cli/docker_cli_daemon_test.go
+@@ -1627,9 +1627,8 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithPausedContainer(c *check.C) {
+ 	case <-time.After(5 * time.Second):
+ 		c.Fatal("Waiting on start a container timed out")
+ 	case err := <-errchan:
+-		if err != nil {
+-			c.Fatal(err)
+-		}
++		c.Assert(err, check.NotNil, check.Commentf("cannot start a paused container"))
++		s.d.Cmd("unpause", "test")
+ 	}
+ }
+ 
+-- 
+2.17.1
+

@@ -1,0 +1,45 @@
+From 8bd08475a06b5475fc88b207d578a006ad9a45cd Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 13 Feb 2019 00:31:32 +0800
+Subject: [PATCH 097/111] restart:  fix --restart=unless-stopped not
+ stop for docker stop
+
+reason: testCE_secure_container_kata_FUN.054.sh
+
+Change-Id: I536bb6cf1fe698da9fe330b110f122d4e8af17d6
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/monitor.go | 1 +
+ components/engine/daemon/start.go   | 4 +++-
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index 51159eb76d..7ae85f58a9 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -106,6 +106,7 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 						if err != restartmanager.ErrRestartCanceled {
+ 							logrus.Errorf("restartmanger wait error: %+v", err)
+ 						}
++						c.CheckpointTo(daemon.containersReplica)
+ 					}
+ 				}()
+ 			}
+diff --git a/components/engine/daemon/start.go b/components/engine/daemon/start.go
+index 96ae45e11e..8ff636b5a5 100644
+--- a/components/engine/daemon/start.go
++++ b/components/engine/daemon/start.go
+@@ -203,7 +203,9 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint
+ 	}
+ 
+ 	container.SetRunning(pid, true)
+-	container.HasBeenManuallyStopped = false
++	if resetRestartManager {
++		container.HasBeenManuallyStopped = false
++	}
+ 	container.HasBeenStartedBefore = true
+ 	daemon.setStateCounter(container)
+ 
+-- 
+2.17.1
+

@@ -1,0 +1,227 @@
+From 9b4ec11138037abf3def2fcb1c3f415a915f044e Mon Sep 17 00:00:00 2001
+From: zhaolongquan1 <zhaolongquan1@huawei.com>
+Date: Thu, 13 Jun 2019 20:49:01 -0400
+Subject: [PATCH] docker:  support docker cli using syslog
+
+reason:add caller information to the docker rm/stop/restart/kill command and print to the log
+
+Change-Id: I05a109c6a7fe105be6ed680cd5a5700eac99c8bb
+Signed-off-by: zhaolongquan1 <zhaolongquan1@huawei.com>
+---
+ .../github.com/docker/docker/pkg/ppid/ppid.go      | 41 ++++++++++++++
+ .../vendor/github.com/sirupsen/logrus/checklist    |  1 +
+ .../sirupsen/logrus/hooks/syslog/README.md         | 39 ++++++++++++++
+ .../sirupsen/logrus/hooks/syslog/syslog.go         | 62 ++++++++++++++++++++++
+ .../sirupsen/logrus/hooks/syslog/syslog_test.go    | 27 ++++++++++
+ 5 files changed, 170 insertions(+)
+ create mode 100644 components/cli/vendor/github.com/docker/docker/pkg/ppid/ppid.go
+ create mode 100644 components/cli/vendor/github.com/sirupsen/logrus/checklist
+ create mode 100644 components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/README.md
+ create mode 100644 components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog.go
+ create mode 100644 components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog_test.go
+
+diff --git a/components/cli/vendor/github.com/docker/docker/pkg/ppid/ppid.go b/components/cli/vendor/github.com/docker/docker/pkg/ppid/ppid.go
+new file mode 100644
+index 0000000..7d634de
+--- /dev/null
++++ b/components/cli/vendor/github.com/docker/docker/pkg/ppid/ppid.go
+@@ -0,0 +1,41 @@
++package ppid
++
++import (
++	"bytes"
++	"fmt"
++	"io/ioutil"
++	"os"
++	"strings"
++	"log/syslog"
++
++	"github.com/sirupsen/logrus"
++	lSyslog "github.com/sirupsen/logrus/hooks/syslog"
++)
++
++func AddSyslogHook() {
++	logrus.SetOutput(ioutil.Discard)
++	hook, serr := lSyslog.NewSyslogHook("", "", syslog.LOG_DEBUG|syslog.LOG_USER, "docker-client")
++	if serr != nil {
++		hook, serr = lSyslog.NewSyslogHook("udp", "localhost:514", syslog.LOG_DEBUG|syslog.LOG_USER, "docker-client")
++	}
++	if serr == nil {
++		logrus.SetFormatter(&logrus.TextFormatter{
++			DisableColors: true,
++			FullTimestamp: true,
++		})
++		logrus.AddHook(hook)
++	}
++}
++
++func Log(command string, args []string) {
++	ppid := os.Getppid()
++	cmdlinePath := fmt.Sprintf("/proc/%v/cmdline", ppid)
++	content, err := ioutil.ReadFile(cmdlinePath)
++	if err != nil {
++		logrus.Infof("read cmdline %s failed: %v", cmdlinePath, err)
++	} else {
++		s := bytes.Replace(content, []byte{0}, []byte(" "), -1)
++		cmd := fmt.Sprintf("docker %s %v", command, strings.Join(args, " "))
++		logrus.Infof("received command [%v] from parent [%v] cmdline [%v]", cmd, ppid, string(s))
++	}
++}
+diff --git a/components/cli/vendor/github.com/sirupsen/logrus/checklist b/components/cli/vendor/github.com/sirupsen/logrus/checklist
+new file mode 100644
+index 0000000..1d505b2
+--- /dev/null
++++ b/components/cli/vendor/github.com/sirupsen/logrus/checklist
+@@ -0,0 +1 @@
++Add log forwarding mechanism in docker-client and print the ppid for docker kill/restart/stop/rm command.
+\ No newline at end of file
+diff --git a/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/README.md b/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/README.md
+new file mode 100644
+index 0000000..069ce12
+--- /dev/null
++++ b/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/README.md
+@@ -0,0 +1,39 @@
++# Syslog Hooks for Logrus <img src="http://i.imgur.com/hTeVwmJ.png" width="40" height="40" alt=":walrus:" class="emoji" title=":walrus:"/>
++
++## Usage
++
++```go
++import (
++  "log/syslog"
++  "github.com/sirupsen/logrus"
++  logrus_syslog "github.com/sirupsen/logrus/hooks/syslog"
++)
++
++func main() {
++  log       := logrus.New()
++  hook, err := logrus_syslog.NewSyslogHook("udp", "localhost:514", syslog.LOG_INFO, "")
++
++  if err == nil {
++    log.Hooks.Add(hook)
++  }
++}
++```
++
++If you want to connect to local syslog (Ex. "/dev/log" or "/var/run/syslog" or "/var/run/log"). Just assign empty string to the first two parameters of `NewSyslogHook`. It should look like the following.
++
++```go
++import (
++  "log/syslog"
++  "github.com/sirupsen/logrus"
++  logrus_syslog "github.com/sirupsen/logrus/hooks/syslog"
++)
++
++func main() {
++  log       := logrus.New()
++  hook, err := logrus_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "")
++
++  if err == nil {
++    log.Hooks.Add(hook)
++  }
++}
++```
+\ No newline at end of file
+diff --git a/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog.go b/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog.go
+new file mode 100644
+index 0000000..e76786e
+--- /dev/null
++++ b/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog.go
+@@ -0,0 +1,62 @@
++// +build !windows,!nacl,!plan9
++
++package logrus_syslog
++
++import (
++	"fmt"
++	"log/syslog"
++	"os"
++
++	"github.com/sirupsen/logrus"
++)
++
++// SyslogHook to send logs via syslog.
++type SyslogHook struct {
++	Writer        *syslog.Writer
++	SyslogNetwork string
++	SyslogRaddr   string
++}
++
++// Creates a hook to be added to an instance of logger. This is called with
++// `hook, err := NewSyslogHook("udp", "localhost:514", syslog.LOG_DEBUG, "")`
++// `if err == nil { log.Hooks.Add(hook) }`
++func NewSyslogHook(network, raddr string, priority syslog.Priority, tag string) (*SyslogHook, error) {
++	w, err := syslog.Dial(network, raddr, priority, tag)
++	return &SyslogHook{w, network, raddr}, err
++}
++
++func (hook *SyslogHook) Fire(entry *logrus.Entry) error {
++	line, err := entry.String()
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "Unable to read entry, %v", err)
++		return err
++	}
++
++	switch entry.Level {
++	case logrus.PanicLevel:
++		return hook.Writer.Crit(line)
++	case logrus.FatalLevel:
++		return hook.Writer.Crit(line)
++	case logrus.ErrorLevel:
++		return hook.Writer.Err(line)
++	case logrus.WarnLevel:
++		return hook.Writer.Warning(line)
++	case logrus.InfoLevel:
++		return hook.Writer.Info(line)
++	case logrus.DebugLevel:
++		return hook.Writer.Debug(line)
++	default:
++		return nil
++	}
++}
++
++func (hook *SyslogHook) Levels() []logrus.Level {
++	return []logrus.Level{
++		logrus.PanicLevel,
++		logrus.FatalLevel,
++		logrus.ErrorLevel,
++		logrus.WarnLevel,
++		logrus.InfoLevel,
++		logrus.DebugLevel,
++	}
++}
+diff --git a/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog_test.go b/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog_test.go
+new file mode 100644
+index 0000000..89bd1ec
+--- /dev/null
++++ b/components/cli/vendor/github.com/sirupsen/logrus/hooks/syslog/syslog_test.go
+@@ -0,0 +1,27 @@
++package logrus_syslog
++
++import (
++	"log/syslog"
++	"testing"
++
++	"github.com/sirupsen/logrus"
++)
++
++func TestLocalhostAddAndPrint(t *testing.T) {
++	log := logrus.New()
++	hook, err := NewSyslogHook("udp", "localhost:514", syslog.LOG_INFO, "")
++
++	if err != nil {
++		t.Errorf("Unable to connect to local syslog.")
++	}
++
++	log.Hooks.Add(hook)
++
++	for _, level := range hook.Levels() {
++		if len(log.Hooks[level]) != 1 {
++			t.Errorf("SyslogHook was not added. The length of log.Hooks[%v]: %v", level, len(log.Hooks[level]))
++		}
++	}
++
++	log.Info("Congratulations!")
++}
+-- 
+1.8.3.1
+

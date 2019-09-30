@@ -1,0 +1,50 @@
+From 5f82c47f5f08655e325610a9430a4e891c71857a Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 13:58:17 +0800
+Subject: [PATCH 037/111] config:  Add --liver-restore to OPTIION to
+ enable live restore by default
+
+reason: cherry-pick commits to docker-18.09
+
+this commit copy latest file from docker-1.11.2
+
+cherry-pick from
+c9846ccea8 | * Add --liver-restore to OPTIION to enable live restore by
+default
+
+Change-Id: I9c52a81d1bb06f2abb090bbd048cbf2dbc44956a
+Signed-off-by: Lei Jitang <leijitang@huawei.com>
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../init/sysvinit-redhat/docker.sysconfig     | 19 ++++++++++++++-----
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/components/engine/contrib/init/sysvinit-redhat/docker.sysconfig b/components/engine/contrib/init/sysvinit-redhat/docker.sysconfig
+index 0864b3d77f..234acad1dd 100644
+--- a/components/engine/contrib/init/sysvinit-redhat/docker.sysconfig
++++ b/components/engine/contrib/init/sysvinit-redhat/docker.sysconfig
+@@ -1,7 +1,16 @@
+ # /etc/sysconfig/docker
+-#
+-# Other arguments to pass to the docker daemon process
+-# These will be parsed by the sysv initscript and appended
+-# to the arguments list passed to docker daemon
+ 
+-other_args=""
++# Modify these options if you want to change the way the docker daemon runs
++OPTIONS='--live-restore'
++
++DOCKER_CERT_PATH=/etc/docker
++
++# If you have a registry secured with https but do not have proper certs
++# distributed, you can tell docker to not look for full authorization by
++# adding the registry to the INSECURE_REGISTRY line and uncommenting it.
++# INSECURE_REGISTRY='--insecure-registry'
++
++# Location used for temporary files, such as those created by
++# docker load and build operations. Default is /var/lib/docker/tmp
++# Can be overridden by setting the following environment variable.
++# DOCKER_TMPDIR=/var/tmp
+-- 
+2.17.1
+

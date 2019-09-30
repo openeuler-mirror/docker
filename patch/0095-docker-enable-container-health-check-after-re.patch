@@ -1,0 +1,41 @@
+From 7f1228356891f66979c7f7e35957ab5392ea8758 Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Fri, 1 Feb 2019 21:18:34 +0800
+Subject: [PATCH 095/111] docker:  enable container health check after
+ restart docker
+
+reason:enable container health check after restart docker.
+
+Change-Id: Ic877fdbea8de5b87d2a101c19dbb8a9e8e49c0bb
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ components/engine/daemon/daemon.go                          | 6 +++++-
+ 5 files changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index b207709f7c..f5d22bb18b 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -379,6 +379,10 @@ func (daemon *Daemon) restore() error {
+ 			if c.IsRunning() || c.IsPaused() {
+ 				c.RestartManager().Cancel() // manually start containers because some need to wait for swarm networking
+ 
++				c.Lock()
++				daemon.initHealthMonitor(c)
++				c.Unlock()
++
+ 				if c.IsPaused() && alive {
+ 					s, err := daemon.containerd.Status(context.Background(), c.ID)
+ 					if err != nil {
+@@ -930,7 +934,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 
+ 	for operatingSystem, gd := range d.graphDrivers {
+ 		layerStores[operatingSystem], err = layer.NewStoreFromOptions(layer.StoreOptions{
+-			Root: config.Root,
++			Root:                      config.Root,
+ 			MetadataStorePathTemplate: filepath.Join(config.Root, "image", "%s", "layerdb"),
+ 			GraphDriver:               gd,
+ 			GraphDriverOptions:        config.GraphOptions,
+-- 
+2.17.1
+

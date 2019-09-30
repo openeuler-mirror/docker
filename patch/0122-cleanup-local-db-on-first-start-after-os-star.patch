@@ -1,0 +1,87 @@
+From f7263dbc15c9730bd5dd562790d17607bbd6caec Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 14 May 2019 12:13:46 +0800
+Subject: [PATCH] cleanup local-db on first start after os start
+
+Change-Id: I8ed28bbdd4d7d87211339e8d1d752f435c999789
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/daemon.go | 55 ++++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 041e7142f1..2d5051412e 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -509,6 +509,8 @@ func (daemon *Daemon) restore() error {
+ 		logrus.Errorf("removeRedundantMounts failed %v", err)
+ 	}
+ 
++	daemon.cleanupLocalDBs()
++
+ 	containerIDs := make(map[string]struct{})
+ 	for cid, _ := range containers {
+ 		containerIDs[cid] = struct{}{}
+@@ -609,6 +611,59 @@ func (daemon *Daemon) restore() error {
+ 	return nil
+ }
+ 
++func (daemon *Daemon) cleanupLocalDB(db string) {
++	_, err := os.Stat(db)
++	if err == nil {
++		err = os.Remove(db)
++		logrus.Infof("cleanup DB %s error=%v", db, err)
++	}
++}
++
++// DB files may corrupted on exception poweroff but can be rebuild at run time,
++// so we can remove DB files on OS starts avoid daemon can not startup.
++func (daemon *Daemon) cleanupLocalDBs() {
++	// check db lock is exist, do nothing if file is existed
++	dbLockPath := filepath.Join(daemon.configStore.ExecRoot, "dblock")
++	_, err := os.Stat(dbLockPath)
++	if err == nil {
++		return
++	}
++	if !os.IsNotExist(err) {
++		logrus.Errorf("stat dblock failed %v", err)
++		return
++	}
++	ioutil.WriteFile(dbLockPath, []byte{}, 0600)
++
++	removeAllDB := func() {
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "builder/fscache.db"))
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "volumes/metadata.db"))
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "network/files/local-kv.db"))
++		// daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"))
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "accelerator/accel.db"))
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "buildkit/metadata.db"))
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "buildkit/cache.db"))
++		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "buildkit/snapshots.db"))
++	}
++
++	if daemon.containers == nil {
++		logrus.Warnf("nil containers, cleanup local DB after OS start ...")
++		removeAllDB()
++		return
++	}
++
++	ls, err := daemon.Containers(&types.ContainerListOptions{})
++	if err != nil {
++		logrus.Errorf("list containers failed %v", err)
++		return
++	}
++
++	if len(ls) == 0 {
++		logrus.Warnf("no running containers, cleanup local DB after OS start ...")
++		removeAllDB()
++		return
++	}
++}
++
+ // RestartSwarmContainers restarts any autostart container which has a
+ // swarm endpoint.
+ func (daemon *Daemon) RestartSwarmContainers() {
+-- 
+2.17.1
+

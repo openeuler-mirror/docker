@@ -1,0 +1,60 @@
+From cb7ce3076d0ae553bd2a2aa64a9be145c144d1ed Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 27 Jun 2019 17:07:21 +0800
+Subject: [PATCH] docker:  delete containerd db first reboot
+
+Change-Id: I90b5e2217df47cef71a410e43188476be751cebe
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/cmd/dockerd/daemon.go |  1 +
+ components/engine/daemon/daemon.go      | 15 ++++++++++++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index ea00c56fde..9c2b6602b3 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -185,6 +185,7 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
+ 		return fmt.Errorf("Error starting daemon: %v", err)
+ 	}
+ 
++	d.CleanupContainerdDBs()
+ 	d.StoreHosts(hosts)
+ 
+ 	// validate after NewDaemon has restored enabled plugins. Dont change order.
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 72467eb62a..c36cc6395f 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -619,6 +619,20 @@ func (daemon *Daemon) cleanupLocalDB(db string) {
+ 	}
+ }
+ 
++func (daemon *Daemon) CleanupContainerdDBs() {
++	// check db lock is exist, do nothing if file is existed
++	dbLockPath := filepath.Join(daemon.configStore.ExecRoot, "dblock")
++	_, err := os.Stat(dbLockPath)
++	if err == nil {
++		return
++	}
++	if !os.IsNotExist(err) {
++		logrus.Errorf("stat dblock failed %v", err)
++		return
++	}
++	daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"))
++}
++
+ // DB files may corrupted on exception poweroff but can be rebuild at run time,
+ // so we can remove DB files on OS starts avoid daemon can not startup.
+ func (daemon *Daemon) cleanupLocalDBs() {
+@@ -638,7 +652,6 @@ func (daemon *Daemon) cleanupLocalDBs() {
+ 		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "builder/fscache.db"))
+ 		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "volumes/metadata.db"))
+ 		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "network/files/local-kv.db"))
+-		// daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"))
+ 		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "accelerator/accel.db"))
+ 		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "buildkit/metadata.db"))
+ 		daemon.cleanupLocalDB(filepath.Join(daemon.configStore.Root, "buildkit/cache.db"))
+-- 
+2.17.1
+

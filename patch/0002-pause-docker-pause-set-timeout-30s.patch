@@ -1,0 +1,76 @@
+From fb74bc5ce2a510e38b9a8a83d4524876f1881759 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:11:25 +0800
+Subject: [PATCH 002/111] pause: docker pause set timeout 30s
+
+reason:fix docker pause in infinite loop case,when the process in D status
+    libcontainer: cgroups: Write freezer state after every state check
+    This commit ensures we write the expected freezer cgroup state after
+    every state check, in case the state check does not give the expected
+    result. This can happen when a new task is created and prevents the
+    whole cgroup to be FROZEN, leaving the state into FREEZING instead.
+    This patch prevents the case of an infinite loop to happen.
+    Cherry-pick from https://github.com/opencontainers/runc/pull/1610
+
+Change-Id: Ib5355b9d928c491e120439780c1f03c18aa68b73
+Signed-off-by: panwenxiang <panwenxiang@huawei.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/freezer/freezer.go | 37 +++++++++++++++------
+ 1 file changed, 27 insertions(+), 10 deletions(-)
+
+diff --git a/components/engine/daemon/freezer/freezer.go b/components/engine/daemon/freezer/freezer.go
+index 774f5c21ed..cd8b3513d7 100644
+--- a/components/engine/daemon/freezer/freezer.go
++++ b/components/engine/daemon/freezer/freezer.go
+@@ -161,19 +161,36 @@ func (f *freezer) IsPaused() (bool, error) {
+ }
+ 
+ func (f *freezer) updateCgroup(state string) error {
+-	if err := writeFile(f.path, "freezer.state", state); err != nil {
+-		return err
++	curState, err := readFile(f.path, "freezer.state")
++	if err != nil {
++		return fmt.Errorf("read current state failed for %#v", err)
+ 	}
++	curState = strings.TrimSpace(curState)
+ 
++	timeout := time.After(30 * time.Second)
++	tick := time.Tick(1 * time.Millisecond)
+ 	for {
+-		newState, err := readFile(f.path, "freezer.state")
+-		if err != nil {
+-			return err
+-		}
+-		if strings.TrimSpace(newState) == state {
+-			break
++		select {
++		case <-timeout:
++			if err := writeFile(f.path, "freezer.state", curState); err != nil {
++				return fmt.Errorf("cannot write %s to freezer for %#v", curState, err)
++			}
++			return fmt.Errorf("update freezer cgroup timeout for 30s")
++		case <-tick:
++			// In case this loop does not exit because it doesn't get the expected
++			// state, let's write again this state, hoping it's going to be properly
++			// set this time. Otherwise, this loop could run infinitely, waiting for
++			// a state change that would never happen.
++			if err := writeFile(f.path, "freezer.state", state); err != nil {
++				return fmt.Errorf("cannot write freezer.state for %#v", err)
++			}
++			newState, err := readFile(f.path, "freezer.state")
++			if err != nil {
++				return err
++			}
++			if strings.TrimSpace(newState) == state {
++				return nil
++			}
+ 		}
+-		time.Sleep(1 * time.Millisecond)
+ 	}
+-	return nil
+ }
+-- 
+2.17.1
+

@@ -1,0 +1,125 @@
+From 79b46d05b185bf8df96cabb2a121186cd2f121c3 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:22:35 +0800
+Subject: [PATCH 021/111] umask:  support specify umask
+
+reason: support specify umask.
+Umask can be 0022 or 0027(default) by specify umask when
+start container by command `docker create/run` or start
+daemon by command `dockerd`. For example:
+$ dockerd --annotation native.umask=normal
+$ dockerd --annotation native.umask=secure
+$ docker run --exec-opt native.umask=normal
+$ docker run --exec-opt native.umask=secure
+`normal` reparent umask is 0022, `secure`
+reparent umask is 0027.
+
+Change-Id: Iba07a884b733b411e5268d7ecaa22b9aa327ac3c
+Signed-off-by: wangfengtu <wangfengtu@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/create.go      | 21 +++++++++++++++-
+ components/engine/daemon/daemon_unix.go | 33 +++++++++++++++++++++++++
+ 2 files changed, 53 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/create.go b/components/engine/daemon/create.go
+index 565e9dc022..fa000c2208 100644
+--- a/components/engine/daemon/create.go
++++ b/components/engine/daemon/create.go
+@@ -79,6 +79,22 @@ func (daemon *Daemon) containerCreate(params types.ContainerCreateConfig, manage
+ 	return containertypes.ContainerCreateCreatedBody{ID: container.ID, Warnings: warnings}, nil
+ }
+ 
++func (daemon *Daemon) setUmask(c *containertypes.Config) error {
++	// Use option native.umask passed by command create/run if specified,
++	// otherwise use daemon's native.umask option.
++	if val, ok := c.Annotations["native.umask"]; ok {
++		if val != umaskNormal && val != umaskSecure {
++			return fmt.Errorf("native.umask option %s not supported", val)
++		}
++	} else if UsingNormalUmask(daemon.configStore) {
++		c.Annotations["native.umask"] = umaskNormal
++	} else {
++		c.Annotations["native.umask"] = umaskSecure
++	}
++
++	return nil
++}
++
+ // Create creates a new container from the given configuration with a given name.
+ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (retC *container.Container, retErr error) {
+ 	var (
+@@ -162,8 +178,11 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
+ 	}
+ 	container.RWLayer = rwLayer
+ 
+-	rootIDs := daemon.idMapping.RootPair()
++	if err := daemon.setUmask(params.Config); err != nil {
++		return nil, err
++	}
+ 
++	rootIDs := daemon.idMapping.RootPair()
+ 	if err := idtools.MkdirAndChown(container.Root, 0700, rootIDs); err != nil {
+ 		return nil, err
+ 	}
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 5b390d2db1..8ffdd0009a 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -77,6 +77,10 @@ const (
+ 	// DefaultRuntimeName is the default runtime to be used by
+ 	// containerd if none is specified
+ 	DefaultRuntimeName = "runc"
++
++	// constant for umasks in containers. normal: 0022, secure(default): 0027
++	umaskNormal = "normal"
++	umaskSecure = "secure"
+ )
+ 
+ type containerGetter interface {
+@@ -581,6 +585,32 @@ func UsingSystemd(config *config.Config) bool {
+ 	return getCD(config) == cgroupSystemdDriver
+ }
+ 
++// getUmask gets the raw value of the native.umask option, if set.
++func getUmask(config *config.Config) string {
++	for _, option := range config.ExecOptions {
++		key, val, err := parsers.ParseKeyValueOpt(option)
++		if err != nil || !strings.EqualFold(key, "native.umask") {
++			continue
++		}
++		return val
++	}
++	return ""
++}
++
++// VerifyNativeUmask validates native.umask
++func VerifyNativeUmask(config *config.Config) error {
++	umask := getUmask(config)
++	if umask == "" || umask == umaskNormal || umask == umaskSecure {
++		return nil
++	}
++	return fmt.Errorf("native.umask option %s not supported", umask)
++}
++
++// UsingNormalUmask returns true if cli option includes native.umask=normal
++func UsingNormalUmask(config *config.Config) bool {
++	return getUmask(config) == umaskNormal
++}
++
+ // verifyPlatformContainerSettings performs platform-specific validation of the
+ // hostconfig and config structures.
+ func (daemon *Daemon) verifyPlatformContainerSettings(hostConfig *containertypes.HostConfig, config *containertypes.Config, update bool) ([]string, error) {
+@@ -737,6 +767,9 @@ func verifyDaemonSettings(conf *config.Config) error {
+ 			return fmt.Errorf("cgroup-parent for systemd cgroup should be a valid slice named as \"xxx.slice\"")
+ 		}
+ 	}
++	if err := VerifyNativeUmask(conf); err != nil {
++		return err
++	}
+ 
+ 	if conf.DefaultRuntime == "" {
+ 		conf.DefaultRuntime = config.StockRuntimeName
+-- 
+2.17.1
+

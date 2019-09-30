@@ -1,0 +1,38 @@
+From a683efcf5e14acdd40574edeaed6b293b0536867 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 15 Jan 2019 10:16:25 +0800
+Subject: [PATCH 063/111] test:  fix umask make file mode failed
+
+reason: set umask to 0022 make sure test added file's mode match expect.
+
+Change-Id: I258d3d999c82041a16851f438f556746e6477ebf
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/internal/test/fakecontext/context.go | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/components/engine/internal/test/fakecontext/context.go b/components/engine/internal/test/fakecontext/context.go
+index 8b11da207e..24f326b864 100644
+--- a/components/engine/internal/test/fakecontext/context.go
++++ b/components/engine/internal/test/fakecontext/context.go
+@@ -6,6 +6,7 @@ import (
+ 	"io/ioutil"
+ 	"os"
+ 	"path/filepath"
++	"syscall"
+ 
+ 	"github.com/docker/docker/internal/test"
+ 	"github.com/docker/docker/pkg/archive"
+@@ -96,6 +97,9 @@ func (f *Fake) Add(file, content string) error {
+ }
+ 
+ func (f *Fake) addFile(file string, content []byte) error {
++	mask := syscall.Umask(0022)
++	defer syscall.Umask(mask)
++
+ 	fp := filepath.Join(f.Dir, filepath.FromSlash(file))
+ 	dirpath := filepath.Dir(fp)
+ 	if dirpath != "." {
+-- 
+2.17.1
+

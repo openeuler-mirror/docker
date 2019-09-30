@@ -1,0 +1,34 @@
+From f81a87edbeb1ddc58d48d36c963f76f0ed6cc04f Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 00:40:29 +0800
+Subject: [PATCH 028/111] oci:  add fdenable fdstat and fdthreshold to
+ masked path
+
+reason: cherry-pick commits to docker-18.09
+
+reason:add fdenable fdstat and fdthreshold to masked path
+
+Change-Id: I7b39a4ad9b989ef4b8185e386aa70c2d638efcd9
+Signed-off-by: caihaomin <caihaomin@huawei.com>
+Signed-off-by: xiadanni <xiadanni@huawei.com>
+---
+ components/engine/oci/defaults.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index e39140b47f..de0088c4bb 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -124,6 +124,9 @@ func DefaultLinuxSpec() specs.Spec {
+ 			"/proc/sched_debug",
+ 			"/proc/scsi",
+ 			"/proc/files_panic_enable",
++			"/proc/fdthreshold",
++			"/proc/fdstat",
++			"/proc/fdenable",
+ 			"/sys/firmware",
+ 		},
+ 		ReadonlyPaths: []string{
+-- 
+2.17.1
+

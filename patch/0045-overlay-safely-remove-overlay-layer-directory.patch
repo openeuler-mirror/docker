@@ -1,0 +1,122 @@
+From d2901f9efd4b1b26c995ea1c61663a14bc9c55d6 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 3 Jan 2019 16:25:23 +0800
+Subject: [PATCH 045/111] overlay:  safely remove overlay layer
+ directory
+
+reason: cherry-pick commits to docker-18.09
+
+merge from
+0af3bf355a * safely remove overlay layer directory
+e2b1d6827b * docker: add link string validation
+
+---
+safely remove overlay layer directory
+
+do not recover link if the format is illegal
+do not remove illegal link string
+
+Signed-off-by: Deng Guangxing <dengguangxing@huawei.com>
+---
+docker: add link string validation
+
+validate link string with restrict reqirements, not just stringLen.
+Shukui Yang
+
+Signed-off-by: Deng Guangxing <dengguangxing@huawei.com>
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+
+Change-Id: Ie4f47b942c7e89bd6632d310c1cb34533ed5726b
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../daemon/graphdriver/overlay2/overlay.go    | 30 +++++++++++++++++--
+ .../daemon/graphdriver/overlay2/randomid.go   |  7 +++++
+ 2 files changed, 34 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 722d65b11a..773d5232cc 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -419,6 +419,10 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 	}
+ 
+ 	lid := generateID(idLength)
++	if !verifyID(lid, idLength) {
++		// this should never happen
++		return fmt.Errorf("[overlay2], generated link string(%s) illegal", lid)
++	}
+ 	if err := os.Symlink(path.Join("..", id, "diff"), path.Join(d.home, linkDir, lid)); err != nil {
+ 		return err
+ 	}
+@@ -491,6 +495,9 @@ func (d *Driver) getLower(parent string) (string, error) {
+ 	if err != nil {
+ 		return "", err
+ 	}
++	if !verifyID(string(parentLink), idLength) {
++		return "", fmt.Errorf("illegal link string: %s", parentLink)
++	}
+ 	lowers := []string{path.Join(linkDir, string(parentLink))}
+ 
+ 	parentLower, err := ioutil.ReadFile(path.Join(parentDir, lowerFile))
+@@ -570,7 +577,7 @@ func (d *Driver) Remove(id string) error {
+ 	dir := d.dir(id)
+ 	lid, err := ioutil.ReadFile(path.Join(dir, "link"))
+ 	if err == nil {
+-		if len(lid) == 0 {
++		if !verifyID(string(lid), idLength) {
+ 			logrus.WithField("storage-driver", "overlay2").Errorf("refusing to remove empty link for layer %v", id)
+ 		} else if err := os.RemoveAll(path.Join(d.home, linkDir, string(lid))); err != nil {
+ 			logrus.WithField("storage-driver", "overlay2").Debugf("Failed to remove link: %v", err)
+@@ -703,8 +710,25 @@ func (d *Driver) Put(id string) error {
+ 
+ // Exists checks to see if the id is already mounted.
+ func (d *Driver) Exists(id string) bool {
+-	_, err := os.Stat(d.dir(id))
+-	return err == nil
++	_, rerr := os.Stat(d.dir(id))
++	if rerr == nil {
++		lstr, err := ioutil.ReadFile(path.Join(d.dir(id), "link"))
++		// link is valid
++		if err == nil && verifyID(string(lstr), idLength) {
++			// check symlink
++			_, rerr = os.Stat(path.Join(d.home, linkDir, string(lstr)))
++			if rerr != nil {
++				os.RemoveAll(path.Join(d.home, linkDir, string(lstr)))
++
++				logrus.Infof("[overlay2]: symlink (%s) is missing, create a new one", lstr)
++				if rerr = os.Symlink(path.Join("..", id, "diff"), path.Join(d.home, linkDir, string(lstr))); rerr != nil {
++					return false
++				}
++			}
++			return true
++		}
++	}
++	return false
+ }
+ 
+ // isParent determines whether the given parent is the direct parent of the
+diff --git a/components/engine/daemon/graphdriver/overlay2/randomid.go b/components/engine/daemon/graphdriver/overlay2/randomid.go
+index 842c06127f..933d9fccb6 100644
+--- a/components/engine/daemon/graphdriver/overlay2/randomid.go
++++ b/components/engine/daemon/graphdriver/overlay2/randomid.go
+@@ -8,6 +8,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"os"
++	"regexp"
+ 	"syscall"
+ 	"time"
+ 
+@@ -79,3 +80,9 @@ func retryOnError(err error) bool {
+ 
+ 	return false
+ }
++
++func verifyID(id string, l int) bool {
++	regstr := fmt.Sprintf("^[A-Z0-9]{%d}$", l)
++	rgxp := regexp.MustCompile(regstr)
++	return rgxp.MatchString(id)
++}
+-- 
+2.17.1
+

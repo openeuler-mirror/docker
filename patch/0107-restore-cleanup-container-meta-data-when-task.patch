@@ -1,0 +1,37 @@
+From 2e5c40ed0ddf40db1ad0e6964e4391ff6bc8e9e1 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Fri, 22 Feb 2019 00:13:07 +0800
+Subject: [PATCH 107/111] restore:  cleanup container meta data when
+ task not exist
+
+reason: docker_hook:testCE_docker_hook_spec_ABN.081.sh
+create container include 2 step:
+1. create meta data.
+2. create task.
+when dockerd restart during creating, it may residue meta while create
+task failed. cleanup meta data in restore.
+
+Change-Id: I80ea1694e3df143c4a5679f680e61d43ddcfe3aa
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/daemon.go                            | 4 ++++
+ 5 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index e26494ed68..c96e28d88d 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -365,6 +365,10 @@ func (daemon *Daemon) restore() error {
+ 			}
+ 			if !alive {
+ 				ec, exitedAt, err = daemon.containerd.DeleteTask(context.Background(), c.ID)
++				if err != nil && errdefs.IsNotFound(err) {
++					err := daemon.containerd.Delete(context.Background(), c.ID)
++					logrus.Infof("cleanup containerd meta for %s error=%v", c.ID, err)
++				}
+ 				if err != nil && !errdefs.IsNotFound(err) {
+ 					logrus.WithError(err).Errorf("Failed to delete container %s from containerd", c.ID)
+ 					return
+-- 
+2.17.1
+

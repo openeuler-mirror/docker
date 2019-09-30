@@ -1,0 +1,441 @@
+From b555ed1bb121b0740665fb0db9f7fea3b339f98c Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 11:22:22 +0800
+Subject: [PATCH 020/111] cleanup:  remove redundant files in
+ graphdriver and mount dir
+
+reason:remove redundant files in graphdriver and mount dir
+
+Change-Id: Ie75b78ac1e288d2c909dcd446636d16b1dd60363
+Signed-off-by: yangshukui <yangshukui@huawei.com>
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ components/engine/daemon/daemon.go            | 28 ++++++-
+ .../engine/daemon/graphdriver/aufs/aufs.go    |  5 ++
+ .../engine/daemon/graphdriver/btrfs/btrfs.go  |  5 ++
+ .../daemon/graphdriver/devmapper/driver.go    |  5 ++
+ .../engine/daemon/graphdriver/driver.go       |  2 +
+ .../daemon/graphdriver/overlay/overlay.go     |  5 ++
+ .../daemon/graphdriver/overlay2/overlay.go    | 19 +++++
+ components/engine/daemon/graphdriver/proxy.go |  5 ++
+ .../engine/daemon/graphdriver/vfs/driver.go   |  5 ++
+ .../engine/daemon/graphdriver/zfs/zfs.go      |  5 ++
+ components/engine/daemon/images/service.go    |  4 +
+ .../engine/distribution/xfer/download_test.go |  4 +
+ components/engine/layer/layer.go              |  1 +
+ components/engine/layer/layer_store.go        | 73 +++++++++++++++++++
+ components/engine/pkg/ioutils/fswriters.go    | 36 +++++++++
+ components/engine/reference/store.go          |  1 +
+ 16 files changed, 201 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index f7635f27cc..4546587369 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -262,7 +262,15 @@ func (daemon *Daemon) restore() error {
+ 		id := v.Name()
+ 		container, err := daemon.load(id)
+ 		if err != nil {
+-			logrus.Errorf("Failed to load container %v: %v", id, err)
++			logrus.Errorf("Failed to load container %v: %v. Try to remove it", id, err)
++			cdir := filepath.Join(daemon.repository, id)
++			// to make sure we are not in fd exhausted state
++			if !strings.Contains(err.Error(), "too many open files") {
++				logrus.Warnf("remove invalid container data: %s", cdir)
++				if err := system.EnsureRemoveAll(cdir); err != nil {
++					logrus.Warnf("remove %s error: %v", cdir, err)
++				}
++			}
+ 			continue
+ 		}
+ 		if !system.IsOSSupported(container.OS) {
+@@ -274,7 +282,12 @@ func (daemon *Daemon) restore() error {
+ 		if (container.Driver == "" && currentDriverForContainerOS == "aufs") || container.Driver == currentDriverForContainerOS {
+ 			rwlayer, err := daemon.imageService.GetLayerByID(container.ID, container.OS)
+ 			if err != nil {
+-				logrus.Errorf("Failed to load container mount %v: %v", id, err)
++				logrus.Errorf("Failed to load container mount %v: %v. Try to remove it", id, err)
++				cdir := filepath.Join(daemon.repository, id)
++				logrus.Warnf("remove invalid container data: %s", cdir)
++				if err := system.EnsureRemoveAll(cdir); err != nil {
++					logrus.Warnf("remove %s error: %v", cdir, err)
++				}
+ 				continue
+ 			}
+ 			container.RWLayer = rwlayer
+@@ -472,6 +485,17 @@ func (daemon *Daemon) restore() error {
+ 		}(c)
+ 	}
+ 	wg.Wait()
++
++	containerIDs := make(map[string]struct{})
++	for cid, _ := range containers {
++		containerIDs[cid] = struct{}{}
++	}
++
++	err = daemon.imageService.LayerStoreForOS(runtime.GOOS).CleanupRedundant(containerIDs)
++	if err != nil {
++		logrus.Errorf("cleanup redundant IDs in layerStore failed %s", err)
++	}
++
+ 	daemon.netController, err = daemon.initNetworkController(daemon.configStore, activeSandboxes)
+ 	if err != nil {
+ 		return fmt.Errorf("Error initializing network controller: %v", err)
+diff --git a/components/engine/daemon/graphdriver/aufs/aufs.go b/components/engine/daemon/graphdriver/aufs/aufs.go
+index 114aa9a615..303138d48a 100644
+--- a/components/engine/daemon/graphdriver/aufs/aufs.go
++++ b/components/engine/daemon/graphdriver/aufs/aufs.go
+@@ -230,6 +230,11 @@ func (a *Driver) Exists(id string) bool {
+ 	return true
+ }
+ 
++// GetAll not implemented
++func (a *Driver) GetAll() []string {
++	return []string{}
++}
++
+ // CreateReadWrite creates a layer that is writable for use as a container
+ // file system.
+ func (a *Driver) CreateReadWrite(id, parent string, opts *graphdriver.CreateOpts) error {
+diff --git a/components/engine/daemon/graphdriver/btrfs/btrfs.go b/components/engine/daemon/graphdriver/btrfs/btrfs.go
+index 7ce7edef36..d04ce10be9 100644
+--- a/components/engine/daemon/graphdriver/btrfs/btrfs.go
++++ b/components/engine/daemon/graphdriver/btrfs/btrfs.go
+@@ -167,6 +167,11 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 	return nil, nil
+ }
+ 
++// GetAll not implemented
++func (a *Driver) GetAll() []string {
++	return []string{}
++}
++
+ // Cleanup unmounts the home directory.
+ func (d *Driver) Cleanup() error {
+ 	err := d.subvolDisableQuota()
+diff --git a/components/engine/daemon/graphdriver/devmapper/driver.go b/components/engine/daemon/graphdriver/devmapper/driver.go
+index 623843f852..a56b26bc8f 100644
+--- a/components/engine/daemon/graphdriver/devmapper/driver.go
++++ b/components/engine/daemon/graphdriver/devmapper/driver.go
+@@ -126,6 +126,11 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 	return metadata, nil
+ }
+ 
++// GetAll not implemented
++func (a *Driver) GetAll() []string {
++	return []string{}
++}
++
+ // Cleanup unmounts a device.
+ func (d *Driver) Cleanup() error {
+ 	err := d.DeviceSet.Shutdown(d.home)
+diff --git a/components/engine/daemon/graphdriver/driver.go b/components/engine/daemon/graphdriver/driver.go
+index a9e1957393..672257a9b5 100644
+--- a/components/engine/daemon/graphdriver/driver.go
++++ b/components/engine/daemon/graphdriver/driver.go
+@@ -78,6 +78,8 @@ type ProtoDriver interface {
+ 	// held by the driver, e.g., unmounting all layered filesystems
+ 	// known to this driver.
+ 	Cleanup() error
++	// GetAll returns all the mountid exists in this driver
++	GetAll() []string
+ }
+ 
+ // DiffDriver is the interface to use to implement graph diffs
+diff --git a/components/engine/daemon/graphdriver/overlay/overlay.go b/components/engine/daemon/graphdriver/overlay/overlay.go
+index 08c05e192f..d59a6dfc83 100644
+--- a/components/engine/daemon/graphdriver/overlay/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay/overlay.go
+@@ -264,6 +264,11 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 	return metadata, nil
+ }
+ 
++// GetAll not implemented
++func (a *Driver) GetAll() []string {
++	return []string{}
++}
++
+ // Cleanup any state created by overlay which should be cleaned when daemon
+ // is being shutdown. For now, we just have to unmount the bind mounted
+ // we had created.
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index b969582eb3..7290616bae 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -507,6 +507,25 @@ func (d *Driver) dir(id string) string {
+ 	return path.Join(d.home, id)
+ }
+ 
++func (d *Driver) GetAll() []string {
++	var ids []string
++
++	fs, err := ioutil.ReadDir(d.home)
++	if err != nil {
++		logrus.Errorf("open directory(%s) failed: %s", d.home, err)
++		return ids
++	}
++
++	for _, f := range fs {
++		if len(f.Name()) >= 64 {
++			ids = append(ids, f.Name())
++		}
++	}
++
++	return ids
++
++}
++
+ func (d *Driver) getLowerDirs(id string) ([]string, error) {
+ 	var lowersArray []string
+ 	lowers, err := ioutil.ReadFile(path.Join(d.dir(id), lowerFile))
+diff --git a/components/engine/daemon/graphdriver/proxy.go b/components/engine/daemon/graphdriver/proxy.go
+index cb350d8074..6c132d40a8 100644
+--- a/components/engine/daemon/graphdriver/proxy.go
++++ b/components/engine/daemon/graphdriver/proxy.go
+@@ -91,6 +91,11 @@ func (d *graphDriverProxy) Capabilities() Capabilities {
+ 	return d.caps
+ }
+ 
++// GetAll not implemented
++func (d *graphDriverProxy) GetAll() []string {
++	return []string{}
++}
++
+ func (d *graphDriverProxy) CreateReadWrite(id, parent string, opts *CreateOpts) error {
+ 	return d.create("GraphDriver.CreateReadWrite", id, parent, opts)
+ }
+diff --git a/components/engine/daemon/graphdriver/vfs/driver.go b/components/engine/daemon/graphdriver/vfs/driver.go
+index 33e6bf6cc9..8c2947d9ee 100644
+--- a/components/engine/daemon/graphdriver/vfs/driver.go
++++ b/components/engine/daemon/graphdriver/vfs/driver.go
+@@ -64,6 +64,11 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 	return nil, nil
+ }
+ 
++// GetAll not implemented
++func (a *Driver) GetAll() []string {
++	return []string{}
++}
++
+ // Cleanup is used to implement graphdriver.ProtoDriver. There is no cleanup required for this driver.
+ func (d *Driver) Cleanup() error {
+ 	return nil
+diff --git a/components/engine/daemon/graphdriver/zfs/zfs.go b/components/engine/daemon/graphdriver/zfs/zfs.go
+index 8a798778d2..e1e2d0d823 100644
+--- a/components/engine/daemon/graphdriver/zfs/zfs.go
++++ b/components/engine/daemon/graphdriver/zfs/zfs.go
+@@ -227,6 +227,11 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 	}, nil
+ }
+ 
++// GetAll not implemented
++func (a *Driver) GetAll() []string {
++	return []string{}
++}
++
+ func (d *Driver) cloneFilesystem(name, parentName string) error {
+ 	snapshotName := fmt.Sprintf("%d", time.Now().Nanosecond())
+ 	parentDataset := zfs.Dataset{Name: parentName}
+diff --git a/components/engine/daemon/images/service.go b/components/engine/daemon/images/service.go
+index e8df5cb649..8d187e2603 100644
+--- a/components/engine/daemon/images/service.go
++++ b/components/engine/daemon/images/service.go
+@@ -177,6 +177,10 @@ func (i *ImageService) GraphDriverForOS(os string) string {
+ 	return i.layerStores[os].DriverName()
+ }
+ 
++func (i *ImageService) LayerStoreForOS(os string) layer.Store {
++	return i.layerStores[os]
++}
++
+ // ReleaseLayer releases a layer allowing it to be removed
+ // called from delete.go Daemon.cleanupContainer(), and Daemon.containerExport()
+ func (i *ImageService) ReleaseLayer(rwlayer layer.RWLayer, containerOS string) error {
+diff --git a/components/engine/distribution/xfer/download_test.go b/components/engine/distribution/xfer/download_test.go
+index 4ab3705af6..91153591ed 100644
+--- a/components/engine/distribution/xfer/download_test.go
++++ b/components/engine/distribution/xfer/download_test.go
+@@ -150,6 +150,10 @@ func (ls *mockLayerStore) DriverStatus() [][2]string {
+ 	return [][2]string{}
+ }
+ 
++func (ls *mockLayerStore) CleanupRedundant(cids map[string]struct{}) error {
++	return nil
++}
++
+ func (ls *mockLayerStore) DriverName() string {
+ 	return "mock"
+ }
+diff --git a/components/engine/layer/layer.go b/components/engine/layer/layer.go
+index d0c7fa8608..425006854d 100644
+--- a/components/engine/layer/layer.go
++++ b/components/engine/layer/layer.go
+@@ -193,6 +193,7 @@ type Store interface {
+ 	Cleanup() error
+ 	DriverStatus() [][2]string
+ 	DriverName() string
++	CleanupRedundant(map[string]struct{}) error
+ }
+ 
+ // DescribableStore represents a layer store capable of storing
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index bc3e8719fc..6a568e9d9b 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -5,6 +5,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"io/ioutil"
++	"strings"
+ 	"sync"
+ 
+ 	"github.com/docker/distribution"
+@@ -460,6 +461,78 @@ func (ls *layerStore) releaseLayer(l *roLayer) ([]Metadata, error) {
+ 	}
+ }
+ 
++// CleanupRedundant will cleanup useless dirs in image/mount and driver
++func (ls *layerStore) CleanupRedundant(cs map[string]struct{}) error {
++	cids, err := ls.getAndCleanCacheIDs(cs)
++	if err != nil {
++		return fmt.Errorf("get cacheIDs failed: %s", err)
++	}
++
++	ids := ls.driver.GetAll()
++
++	for _, id := range ids {
++		if _, ok := cids[id]; !ok {
++			logrus.Warnf("remove redundant cacheID: %s", id)
++			ls.driver.Remove(id)
++		}
++	}
++	return nil
++}
++
++func (ls *layerStore) getAndCleanCacheIDs(cs map[string]struct{}) (map[string]struct{}, error) {
++	cids := make(map[string]struct{})
++
++	ids, mountids, err := ls.store.List()
++	if err != nil {
++		return cids, fmt.Errorf("failed to get mount list from store: %s", err)
++	}
++
++	for _, id := range ids {
++		cid, err := ls.store.GetCacheID(id)
++		if err != nil {
++			logrus.Errorf("failed to get cache id for %s: %s", id, err)
++			// just return if we are not in fd exhausted state
++			if strings.Contains(err.Error(), "too many open files") {
++				return cids, err
++			}
++			continue
++		}
++		cids[cid] = struct{}{}
++	}
++
++	for _, mid := range mountids {
++		// if mid not exist in current container list, just remove it
++		if _, ok := cs[mid]; !ok {
++			logrus.Warnf("remove redundant mountID: %s", mid)
++			ls.store.RemoveMount(mid)
++			continue
++		}
++		mountID, err := ls.store.GetMountID(mid)
++		if err != nil {
++			logrus.Errorf("failed to get mount id for %s: %s", mid, err)
++			// just return if we are not in fd exhausted state
++			if strings.Contains(err.Error(), "too many open files") {
++				return cids, err
++			}
++		} else {
++			cids[mountID] = struct{}{}
++		}
++
++		initID, err := ls.store.GetInitID(mid)
++		if err != nil {
++			logrus.Errorf("failed to get init id for %s: %s", mid, err)
++			// just return if we are not in fd exhausted state
++			if strings.Contains(err.Error(), "too many open files") {
++				return cids, err
++			}
++			continue
++		}
++		cids[initID] = struct{}{}
++	}
++
++	return cids, nil
++}
++
+ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
+ 	ls.layerL.Lock()
+ 	defer ls.layerL.Unlock()
+diff --git a/components/engine/pkg/ioutils/fswriters.go b/components/engine/pkg/ioutils/fswriters.go
+index 534d66ac26..093f11ad8e 100644
+--- a/components/engine/pkg/ioutils/fswriters.go
++++ b/components/engine/pkg/ioutils/fswriters.go
+@@ -5,6 +5,9 @@ import (
+ 	"io/ioutil"
+ 	"os"
+ 	"path/filepath"
++	"strings"
++
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // NewAtomicFileWriter returns WriteCloser so that writing to it writes to a
+@@ -27,6 +30,39 @@ func NewAtomicFileWriter(filename string, perm os.FileMode) (io.WriteCloser, err
+ 	}, nil
+ }
+ 
++func CleanupTmpFilesRecursive(rootDir string) {
++	var removals []string
++	filepath.Walk(rootDir, func(path string, f os.FileInfo, err error) error {
++		if strings.HasPrefix(f.Name(), ".tmp-") {
++			removals = append(removals, path)
++		}
++		return nil
++	})
++
++	for _, r := range removals {
++		os.RemoveAll(r)
++	}
++}
++
++// CleanupAtomicFile cleanup redundant atomic files
++func CleanupAtomicFile(filename string) error {
++	baseName := ".tmp-" + filepath.Base(filename)
++	dir := filepath.Dir(filename)
++	fs, err := ioutil.ReadDir(dir)
++	if err != nil {
++		logrus.Errorf("open directory(%s) failed: %s", dir, err)
++		return err
++	}
++
++	for _, f := range fs {
++		if strings.Contains(f.Name(), baseName) {
++			logrus.Warnf("Remove temporary file: %s", filepath.Join(dir, f.Name()))
++			os.RemoveAll(filepath.Join(dir, f.Name()))
++		}
++	}
++	return nil
++}
++
+ // AtomicWriteFile atomically writes data to a file named by filename.
+ func AtomicWriteFile(filename string, data []byte, perm os.FileMode) error {
+ 	f, err := NewAtomicFileWriter(filename, perm)
+diff --git a/components/engine/reference/store.go b/components/engine/reference/store.go
+index b01051bf58..e54f772b5e 100644
+--- a/components/engine/reference/store.go
++++ b/components/engine/reference/store.go
+@@ -81,6 +81,7 @@ func NewReferenceStore(jsonPath string) (Store, error) {
+ 		Repositories:        make(map[string]repository),
+ 		referencesByIDCache: make(map[digest.Digest]map[string]reference.Named),
+ 	}
++	ioutils.CleanupAtomicFile(abspath)
+ 	// Load the json file if it exists, otherwise create it.
+ 	if err := store.reload(); os.IsNotExist(err) {
+ 		if err := store.save(); err != nil {
+-- 
+2.17.1
+

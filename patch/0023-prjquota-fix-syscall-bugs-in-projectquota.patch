@@ -1,0 +1,65 @@
+From d864d32460063a25ef5a408c596b40555a062646 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Sat, 19 Jan 2019 15:02:39 +0800
+Subject: [PATCH 023/111] prjquota:  fix syscall bugs in projectquota
+
+reason: fix syscall bugs in projectquota, which is introduced
+when cherry-picked.
+
+Change-Id: I4496f2b8fcdcd16eb34584b435a9ef9434639cee
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ .../engine/daemon/graphdriver/quota/projectquota.go      | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/quota/projectquota.go b/components/engine/daemon/graphdriver/quota/projectquota.go
+index 7d879eb81d..7f2fa2fe70 100644
+--- a/components/engine/daemon/graphdriver/quota/projectquota.go
++++ b/components/engine/daemon/graphdriver/quota/projectquota.go
+@@ -79,7 +79,6 @@ import (
+ 	"path"
+ 	"path/filepath"
+ 	"sync"
+-	"syscall"
+ 	"unsafe"
+ 
+ 	rsystem "github.com/opencontainers/runc/libcontainer/system"
+@@ -234,7 +233,7 @@ func (q *Control) SetQuota(targetPath string, quota Quota) error {
+ 		//
+ 		err := setProjectID(targetPath, projectID)
+ 		if err != nil {
+-			q.lock.Lock()
++			q.lock.Unlock()
+ 			return err
+ 		}
+ 
+@@ -312,7 +311,7 @@ func (q *Ext4Quota) SetProjectQuota(backingFsBlockDev string, projectID uint32,
+ 	var cs = C.CString(backingFsBlockDev)
+ 	defer C.free(unsafe.Pointer(cs))
+ 
+-	_, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, C.Q_SETPQUOTA,
++	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, C.Q_SETPQUOTA,
+ 		uintptr(unsafe.Pointer(cs)), uintptr(C.__u32(projectID)),
+ 		uintptr(unsafe.Pointer(&d)), 0, 0)
+ 	if errno != 0 {
+@@ -330,7 +329,7 @@ func (q *Ext4Quota) GetProjectQuota(backingFsBlockDev string, projectID uint32,
+ 	var cs = C.CString(backingFsBlockDev)
+ 	defer C.free(unsafe.Pointer(cs))
+ 
+-	_, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, C.Q_SETPQUOTA,
++	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, C.Q_GETPQUOTA,
+ 		uintptr(unsafe.Pointer(cs)), uintptr(C.__u32(projectID)),
+ 		uintptr(unsafe.Pointer(&d)), 0, 0)
+ 	if errno != 0 {
+@@ -350,7 +349,7 @@ func getQuotaStat(backingFsBlockDev string) (int, error) {
+ 
+ 	var cs = C.CString(backingFsBlockDev)
+ 	defer C.free(unsafe.Pointer(cs))
+-	_, _, errno := syscall.Syscall6(syscall.SYS_QUOTACTL, C.Q_XGETPQSTAT,
++	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, C.Q_XGETPQSTAT,
+ 		uintptr(unsafe.Pointer(cs)), 0,
+ 		uintptr(unsafe.Pointer(&info)), 0, 0)
+ 	if errno != 0 {
+-- 
+2.17.1
+

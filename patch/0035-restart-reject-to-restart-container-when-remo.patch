@@ -1,0 +1,42 @@
+From 2e0fda9de03efe4f399a35c52cac2444b5518709 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Jan 2019 16:43:39 +0800
+Subject: [PATCH 035/111] restart:  reject to restart container when
+ removing it
+
+reason: cherry-pick commits to docker-18.09
+
+concurrence of restart and remove a container may cause
+that container info is still saved in memdb while container is actually
+already removed.
+
+cherry-pick from 1.11.2: f7eeafa
+Conflicts:
+        daemon/restart.go
+
+Change-Id: Ic9be384c908f49697c87f6b51ffcb1968f38d6cc
+Signed-off-by: liruilin4 <liruilin4@huawei.com>
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ components/engine/daemon/restart.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/components/engine/daemon/restart.go b/components/engine/daemon/restart.go
+index bae665f76b..2c441de873 100644
+--- a/components/engine/daemon/restart.go
++++ b/components/engine/daemon/restart.go
+@@ -55,6 +55,11 @@ func (daemon *Daemon) containerRestart(container *container.Container, seconds i
+ 		container.HostConfig.AutoRemove = autoRemove
+ 		// containerStop will write HostConfig to disk, we shall restore AutoRemove
+ 		// in disk too
++		// if rm running concurrently, the container may be already removed now. we should not
++		// save it to disk
++		if container.RemovalInProgress || container.Dead {
++			return fmt.Errorf("can't restart a container which is dead or marked for removal")
++		}
+ 		if toDiskErr := daemon.checkpointAndSave(container); toDiskErr != nil {
+ 			logrus.Errorf("Write container to disk error: %v", toDiskErr)
+ 		}
+-- 
+2.17.1
+
