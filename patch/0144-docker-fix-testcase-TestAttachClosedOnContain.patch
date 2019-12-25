@@ -1,0 +1,31 @@
+From 1b8ccbb863368258645e76a85fca202050a9c636 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Thu, 31 Oct 2019 02:35:33 +0800
+Subject: [PATCH] docker: fix testcase TestAttachClosedOnContainerStop
+
+reason:testcase TestAttachClosedOnContainerStop will fail because we add timeout 
+for attach when container stops, in this case we just ignore err.
+
+Change-Id: I5db1e76535d7a39d3782b488025e27b09e341d3b
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/engine/integration-cli/docker_cli_attach_unix_test.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/integration-cli/docker_cli_attach_unix_test.go b/components/engine/integration-cli/docker_cli_attach_unix_test.go
+index 9affb94..906bf07 100644
+--- a/components/engine/integration-cli/docker_cli_attach_unix_test.go
++++ b/components/engine/integration-cli/docker_cli_attach_unix_test.go
+@@ -52,6 +52,9 @@ func (s *DockerSuite) TestAttachClosedOnContainerStop(c *check.C) {
+ 	case err := <-errChan:
+ 		tty.Close()
+ 		out, _ := ioutil.ReadAll(pty)
++		if strings.Contains(string(out), "Wait container status timeout") {
++			err = nil
++		}
+ 		c.Assert(err, check.IsNil, check.Commentf("out: %v", string(out)))
+ 	case <-time.After(attachWait):
+ 		c.Fatal("timed out without attach returning")
+-- 
+1.8.3.1
+

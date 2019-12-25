@@ -1,0 +1,40 @@
+From d22a96d286265462f82db6329a555cc4dcf3a99c Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Mon, 14 Oct 2019 23:09:29 -0400
+Subject: [PATCH] docker: add 'exit-on-unhealthy' flag for docker build parse Dockerfile
+
+reason: add 'exit-on-unhealthy' flag for docker build parse
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ .../buildkit/frontend/dockerfile/instructions/parse.go     | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/components/engine/vendor/github.com/moby/buildkit/frontend/dockerfile/instructions/parse.go b/components/engine/vendor/github.com/moby/buildkit/frontend/dockerfile/instructions/parse.go
+index 0ce076a5..acfd669b 100644
+--- a/components/engine/vendor/github.com/moby/buildkit/frontend/dockerfile/instructions/parse.go
++++ b/components/engine/vendor/github.com/moby/buildkit/frontend/dockerfile/instructions/parse.go
+@@ -449,6 +449,7 @@ func parseHealthcheck(req parseRequest) (*HealthCheckCommand, error) {
+ 		flTimeout := req.flags.AddString("timeout", "")
+ 		flStartPeriod := req.flags.AddString("start-period", "")
+ 		flRetries := req.flags.AddString("retries", "")
++		flExitOnUnhealthy := req.flags.AddBool("exit-on-unhealthy", false)
+ 
+ 		if err := req.flags.Parse(); err != nil {
+ 			return nil, err
+@@ -501,6 +502,12 @@ func parseHealthcheck(req parseRequest) (*HealthCheckCommand, error) {
+ 			healthcheck.Retries = 0
+ 		}
+ 
++		exitonunhealthy, err := strconv.ParseBool(flExitOnUnhealthy.Value)
++		if err != nil {
++			return nil, err
++		}
++		healthcheck.ExitOnUnhealthy = exitonunhealthy
++
+ 		cmd.Health = &healthcheck
+ 	}
+ 	return cmd, nil
+-- 
+2.20.1
+

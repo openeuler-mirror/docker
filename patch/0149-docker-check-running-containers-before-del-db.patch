@@ -1,0 +1,33 @@
+From b3a721be343ac3183ab3cd5f52183b25a05e2f8d Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 5 Nov 2019 11:43:07 +0800
+Subject: [PATCH] docker: check running containers before del db
+
+Change-Id: I2ea6a0c5f4b7c7f859e415231d67e8e219846bd7
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/cmd/dockerd/daemon.go | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 1981175a4a..918012a334 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -94,6 +94,14 @@ func cleanupLocalDBs(run, root string) {
+ 		return
+ 	}
+ 	ioutil.WriteFile(dbLockPath, []byte{}, 0600)
++	files, _ := ioutil.ReadDir(filepath.Join(run, "containerd"))
++	olds, _ := ioutil.ReadDir(filepath.Join(run, "libcontainerd"))
++	files = append(files, olds...)
++	for _, f := range files {
++		if len(f.Name()) == 64 { // running container exist
++			return
++		}
++	}
+ 	cleanupLocalDB(filepath.Join(root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"))
+ 	cleanupLocalDB(filepath.Join(root, "builder/fscache.db"))
+ 	cleanupLocalDB(filepath.Join(root, "volumes/metadata.db"))
+-- 
+2.17.1
+

@@ -1,0 +1,123 @@
+From 475f02ed158e1339114f34fed98aa766e630351b Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 23 Sep 2019 13:43:44 +0800
+Subject: [PATCH 2/3] docker: hot-upgrade support accel plugins
+
+docker-18.09 do not support accel management, so we should convert accel data
+into env/bind/devices when restore container that started by docker-1.11.2.
+
+Change-Id: I19131123735e3f03c50d314ed5a22ab2fb7908b9
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../engine/api/types/container/host_config.go | 17 +++++++
+ components/engine/container/container.go      | 46 +++++++++++++++++++
+ components/engine/daemon/container.go         |  1 +
+ 3 files changed, 64 insertions(+)
+
+diff --git a/components/engine/api/types/container/host_config.go b/components/engine/api/types/container/host_config.go
+index 6989b2bbf9..f5930b92c1 100644
+--- a/components/engine/api/types/container/host_config.go
++++ b/components/engine/api/types/container/host_config.go
+@@ -360,6 +360,18 @@ type UpdateConfig struct {
+ 	RestartPolicy RestartPolicy
+ }
+ 
++// AccelMount holds the attribultes of accelerator volume mounts
++// Accelerator need to mount one or more volumes into container to provide lib and binary
++// These volume or directories may need to be merged
++type AccelMount struct {
++	Source      string `json:"source"`
++	Destination string `json:"destination"`
++	RW          bool   `json:"writable"`
++	Propagation string `json:"mountpropagation"`
++	Mode        string
++	Cover       bool `json:"cover"`
++}
++
+ // HostConfig the non-portable Config structure of a container.
+ // Here, "non-portable" means "dependent of the host we are running on".
+ // Portable information *should* appear in Config.
+@@ -405,6 +417,11 @@ type HostConfig struct {
+ 	Isolation   Isolation // Isolation technology of the container (e.g. default, hyperv)
+ 	HookSpec    string    // specification file containing custom hook definition
+ 
++	// support plugin created by docker-1.11.2 with accel plugins.
++	AccelBindings     map[string]AccelMount `json:",omitempty"` // Bind mount for accelerator
++	AccelDevices      map[string]string     `json:",omitempty"` // Devices for accelerator
++	AccelEnvironments map[string]string     `json:",omitempty"` // Envs for accelerator
++
+ 	// Contains container's resources (cgroups, ulimits)
+ 	Resources
+ 
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index c19422061d..687df0c71a 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -741,6 +741,52 @@ func (container *Container) CreateDaemonEnvironment(tty bool, linkedEnv []string
+ 	return env
+ }
+ 
++func (c *Container) DropAccelAndCheckpointTo(store ViewDB) {
++	hc := c.HostConfig
++	cc := c.Config
++	shouldco := false
++	if len(hc.AccelBindings) != 0 {
++		for dst, ab := range hc.AccelBindings {
++			bind := fmt.Sprintf("%s:%s", ab.Source, dst)
++			if !ab.RW {
++				bind += ":ro"
++			}
++			hc.Binds = append(hc.Binds, bind)
++		}
++		logrus.Infof("upgrade Binds %v", hc.Binds)
++		hc.AccelBindings = nil
++		shouldco = true
++	}
++
++	if len(hc.AccelDevices) != 0 {
++		for dest, hostPath := range hc.AccelDevices {
++			dev := containertypes.DeviceMapping{
++				PathOnHost: hostPath,
++				PathInContainer: dest,
++				CgroupPermissions: "rwm",
++			}
++			hc.Devices = append(hc.Devices, dev)
++		}
++		logrus.Infof("upgrade Devices %v", hc.Devices)
++		hc.AccelDevices = nil
++		shouldco = true
++	}
++
++	if len(hc.AccelEnvironments) != 0 {
++		for k, v := range hc.AccelEnvironments {
++			env := fmt.Sprintf("%s=%s", k, v)
++			cc.Env = append(cc.Env, env)
++		}
++		logrus.Infof("upgrade Env %s", cc.Env)
++		hc.AccelEnvironments = nil
++		shouldco = true
++	}
++
++	if shouldco {
++		c.CheckpointTo(store)
++	}
++}
++
+ type rio struct {
+ 	cio.IO
+ 
+diff --git a/components/engine/daemon/container.go b/components/engine/daemon/container.go
+index 1cf67c4b5a..bf4574087d 100644
+--- a/components/engine/daemon/container.go
++++ b/components/engine/daemon/container.go
+@@ -112,6 +112,7 @@ func (daemon *Daemon) load(id string) (*container.Container, error) {
+ 		return container, fmt.Errorf("Container %s is stored at %s", container.ID, id)
+ 	}
+ 
++	container.DropAccelAndCheckpointTo(daemon.containersReplica)
+ 	return container, nil
+ }
+ 
+-- 
+2.17.1
+

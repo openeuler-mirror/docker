@@ -1,0 +1,34 @@
+From d9b610a415b59f330ca151009434fa83e59cc5e5 Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Mon, 12 Aug 2019 09:35:56 +0800
+Subject: [PATCH] docker: fix updateUnpauseStats wrong path error
+
+reason: The container stats path has changed but the updatePauseStatus
+still use old path, so we need to update it in case the error occur
+
+Change-Id: I309ae2e351eb3b945a23b85841029770b7855da4
+---
+ components/engine/daemon/daemon.go | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 6c5eafd..01351cc 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -209,7 +209,12 @@ func (daemon *Daemon) updatePauseStatus(c *container.Container) error {
+ 	// update docker pause status.
+ 	// for old container, CgroupParent may be empty.
+ 	if c.CgroupParent == "" {
+-		spec, err := libcontainerd.LoadContainerSpec(filepath.Join(daemon.configStore.ExecRoot, "libcontainerd"), c.ID)
++		// for container just be created, the moby path is empty, so just return nil
++		if c.State.StateString() == "created" {
++			return nil
++		}
++		mobyPath := "containerd/daemon/io.containerd.runtime.v1.linux/moby"
++		spec, err := libcontainerd.LoadContainerSpec(filepath.Join(daemon.configStore.ExecRoot, mobyPath), c.ID)
+ 		if err != nil {
+ 			return err
+ 		}
+-- 
+1.8.3.1
+

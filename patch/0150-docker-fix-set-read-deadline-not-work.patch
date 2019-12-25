@@ -1,0 +1,75 @@
+From 2b830a56e558697de18b821aebed4afb205e073b Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 19 Nov 2019 17:35:58 +0800
+Subject: [PATCH] docker: fix set read deadline not work
+
+Change-Id: I494ff5b18c3d06bfc0064bf6da1eb83b66540cf4
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../dockerd/hack/malformed_host_override.go   | 37 ++++++++++++++++++-
+ 1 file changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/cmd/dockerd/hack/malformed_host_override.go b/components/engine/cmd/dockerd/hack/malformed_host_override.go
+index ddd5eb9d8b..b42b6f0e3a 100644
+--- a/components/engine/cmd/dockerd/hack/malformed_host_override.go
++++ b/components/engine/cmd/dockerd/hack/malformed_host_override.go
+@@ -2,7 +2,12 @@
+ 
+ package hack // import "github.com/docker/docker/cmd/dockerd/hack"
+ 
+-import "net"
++import (
++	"net"
++	"time"
++	"sync/atomic"
++	"github.com/sirupsen/logrus"
++)
+ 
+ // MalformedHostHeaderOverride is a wrapper to be able
+ // to overcome the 400 Bad request coming from old docker
+@@ -20,6 +26,18 @@ type MalformedHostHeaderOverrideConn struct {
+ }
+ 
+ var closeConnHeader = []byte("\r\nConnection: close\r")
++var aLongTimeAgo = time.Unix(1, 0)
++var longTimeAgo int32
++
++// fix hijack hang
++func (l *MalformedHostHeaderOverrideConn) SetReadDeadline(t time.Time) error {
++	if t.Equal(aLongTimeAgo) {
++		atomic.StoreInt32(&longTimeAgo, 1)
++	} else {
++		atomic.StoreInt32(&longTimeAgo, 0)
++	}
++	return l.Conn.SetReadDeadline(t)
++}
+ 
+ // Read reads the first *read* request from http.Server to inspect
+ // the Host header. If the Host starts with / then we're talking to
+@@ -107,7 +125,22 @@ func (l *MalformedHostHeaderOverrideConn) Read(b []byte) (n int, err error) {
+ 		}
+ 		return len(buf), nil
+ 	}
+-	return l.Conn.Read(b)
++	var done int32
++	go func() {
++		for i := 1; i < 300; i++ { // wait max = 30s
++			time.Sleep(100*time.Millisecond) // check interval = 0.1s
++			if atomic.LoadInt32(&longTimeAgo) == 0 || atomic.LoadInt32(&done) == 1 {
++				break
++			}
++			if i % 10 == 0 { // set interval = 1s
++				l.Conn.SetReadDeadline(aLongTimeAgo)
++				logrus.Debugf("fix hijack by set read deadline force")
++			}
++		}
++	}()
++	num, err := l.Conn.Read(b)
++	atomic.StoreInt32(&done, 1)
++	return num, err
+ }
+ 
+ // Accept makes the listener accepts connections and wraps the connection
+-- 
+2.17.1
+

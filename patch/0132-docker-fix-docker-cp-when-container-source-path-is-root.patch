@@ -1,0 +1,41 @@
+From 10fedb9c9814c584ceabfd966fa9cdbeb98ba587 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Tue, 10 Dec 2019 03:44:18 -0500
+Subject: [PATCH] docker: fix docker cp when container source path is /
+
+reason: fix docker cp when container source path is /
+Cherry-pick from upstream: https://github.com/moby/moby/pull/39357
+---
+ components/engine/daemon/archive.go | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/components/engine/daemon/archive.go b/components/engine/daemon/archive.go
+index 0bac763..f9c6fc7 100644
+--- a/components/engine/daemon/archive.go
++++ b/components/engine/daemon/archive.go
+@@ -255,7 +255,11 @@ func (daemon *Daemon) containerArchivePath(container *container.Container, path
+ 	if driver.Base(resolvedPath) == "." {
+ 		resolvedPath += string(driver.Separator()) + "."
+ 	}
+-	sourceDir, sourceBase := driver.Dir(resolvedPath), driver.Base(resolvedPath)
++	sourceDir := resolvedPath
++	sourceBase := "."
++	if stat.Mode&os.ModeDir == 0 { // not dir
++		sourceDir, sourceBase = driver.Split(resolvedPath)
++	}
+ 	opts := archive.TarResourceRebaseOpts(sourceBase, driver.Base(absPath))
+ 
+ 	data, err := archivePath(driver, sourceDir, opts, container.BaseFS.Path())
+@@ -450,9 +454,6 @@ func (daemon *Daemon) containerCopy(container *container.Container, resource str
+ 		d, f := driver.Split(basePath)
+ 		basePath = d
+ 		filter = []string{f}
+-	} else {
+-		filter = []string{driver.Base(basePath)}
+-		basePath = driver.Dir(basePath)
+ 	}
+ 	archive, err := archivePath(driver, basePath, &archive.TarOptions{
+ 		Compression:  archive.Uncompressed,
+-- 
+2.20.1
+

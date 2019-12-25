@@ -1,0 +1,31 @@
+From e6f33061b2c9c6ce3676ec9be79d0bc99455bac6 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Thu, 21 Nov 2019 02:04:28 +0800
+Subject: [PATCH] docker: enable setting env variable to disable db delete
+
+reason: crash files will be cleaned up when daemon restart, this patch allows 
+users to set env variable to disable db files delete if they need.
+
+Change-Id: Ibfc1ee02c8cd49dc05a1c0aa087af27cb0848c79
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/engine/cmd/dockerd/daemon.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 744ec45..5fb8811 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -102,6 +102,9 @@ func cleanupLocalDBs(run, root string) {
+ 			return
+ 		}
+ 	}
++	if os.Getenv("DISABLE_CRASH_FILES_DELETE") == "true" {
++		return
++	}
+ 	cleanupLocalDB(filepath.Join(root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"))
+ 	cleanupLocalDB(filepath.Join(root, "builder/fscache.db"))
+ 	cleanupLocalDB(filepath.Join(root, "volumes/metadata.db"))
+-- 
+1.8.3.1
+

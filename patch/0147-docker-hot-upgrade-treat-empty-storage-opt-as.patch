@@ -1,0 +1,33 @@
+From f408e6c5b7bbf3eb4588e9b25165c7b959562189 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 26 Sep 2019 19:35:57 +0800
+Subject: [PATCH 3/3] docker: hot-upgrade treat empty storage-opt as
+ nil
+
+treat empty storage-opt as nil, fix error when rest api pass "StorageOpt": {}
+
+Error response from daemon: --storage-opt is supported only for overlay over xfs or ext4 with 'pquota' mount option.
+
+Change-Id: I21597b08493ed90aba466f6dcdf977ee46a2dbea
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/create.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/daemon/create.go b/components/engine/daemon/create.go
+index b57b01eacc..7733d7b80b 100644
+--- a/components/engine/daemon/create.go
++++ b/components/engine/daemon/create.go
+@@ -158,6 +158,9 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
+ 	}
+ 
+ 	container.HostConfig.StorageOpt = params.HostConfig.StorageOpt
++	if len(container.HostConfig.StorageOpt) == 0 {
++		container.HostConfig.StorageOpt = nil
++	}
+ 
+ 	// Fixes: https://github.com/moby/moby/issues/34074 and
+ 	// https://github.com/docker/for-win/issues/999.
+-- 
+2.17.1
+

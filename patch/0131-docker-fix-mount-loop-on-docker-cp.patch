@@ -1,0 +1,138 @@
+From cdcaf9f39ebde63ed3fce4d062224e4198589368 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Mon, 9 Dec 2019 04:02:10 -0500
+Subject: [PATCH] docker: fix mount loop on "docker cp"
+
+reason: fix mount loop on "docker cp"
+Cherry-pick from upstream: https://github.com/moby/moby/pull/38993
+---
+ components/engine/container/container_unix.go |  9 ++++++++-
+ components/engine/daemon/archive.go           | 15 +++++++++++++--
+ components/engine/daemon/volumes_unix.go      |  9 +++++++++
+ components/engine/pkg/mount/mount.go          |  5 +++++
+ 4 files changed, 35 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/container/container_unix.go b/components/engine/container/container_unix.go
+index 5a21b8c..43dd759 100644
+--- a/components/engine/container/container_unix.go
++++ b/components/engine/container/container_unix.go
+@@ -385,7 +385,14 @@ func (container *Container) DetachAndUnmount(volumeEventLog func(name, action st
+ 			logrus.Warnf("%s unmountVolumes: Failed to do lazy umount fo volume '%s': %v", container.ID, mountPath, err)
+ 		}
+ 	}
+-	return container.UnmountVolumes(volumeEventLog)
++	err := container.UnmountVolumes(volumeEventLog)
++	// (daemon *).mountVolumes() calls mount.MakeMountAndRUnbindable() for
++	// container root, which results in an extra bind mount, unmount it.
++	if root, err := container.GetResourcePath(""); err == nil {
++		mount.Unmount(root)
++	}
++
++	return err
+ }
+ 
+ // copyExistingContents copies from the source to the destination and
+diff --git a/components/engine/daemon/archive.go b/components/engine/daemon/archive.go
+index 0053e53..0bac763 100644
+--- a/components/engine/daemon/archive.go
++++ b/components/engine/daemon/archive.go
+@@ -12,6 +12,7 @@ import (
+ 	"github.com/docker/docker/pkg/archive"
+ 	"github.com/docker/docker/pkg/chrootarchive"
+ 	"github.com/docker/docker/pkg/ioutils"
++	"github.com/docker/docker/pkg/mount"
+ 	"github.com/docker/docker/pkg/system"
+ 	"github.com/pkg/errors"
+ )
+@@ -172,6 +173,9 @@ func (daemon *Daemon) containerStatPath(container *container.Container, path str
+ 	defer daemon.Unmount(container)
+ 
+ 	err = daemon.mountVolumes(container)
++	if err == mount.ErrMountAndRUnbindFailed {
++		return nil, err
++	}
+ 	defer container.DetachAndUnmount(daemon.LogVolumeEvent)
+ 	if err != nil {
+ 		return nil, err
+@@ -208,9 +212,11 @@ func (daemon *Daemon) containerArchivePath(container *container.Container, path
+ 	}
+ 
+ 	defer func() {
+-		if err != nil {
++		if err != nil && err != mount.ErrMountAndRUnbindFailed {
+ 			// unmount any volumes
+ 			container.DetachAndUnmount(daemon.LogVolumeEvent)
++		}
++		if err != nil {
+ 			// unmount the container's rootfs
+ 			daemon.Unmount(container)
+ 		}
+@@ -286,6 +292,9 @@ func (daemon *Daemon) containerExtractToDir(container *container.Container, path
+ 	defer daemon.Unmount(container)
+ 
+ 	err = daemon.mountVolumes(container)
++	if err == mount.ErrMountAndRUnbindFailed {
++		return err
++	}
+ 	defer container.DetachAndUnmount(daemon.LogVolumeEvent)
+ 	if err != nil {
+ 		return err
+@@ -410,9 +419,11 @@ func (daemon *Daemon) containerCopy(container *container.Container, resource str
+ 	}
+ 
+ 	defer func() {
+-		if err != nil {
++		if err != nil && err != mount.ErrMountAndRUnbindFailed {
+ 			// unmount any volumes
+ 			container.DetachAndUnmount(daemon.LogVolumeEvent)
++		}
++		if err != nil {
+ 			// unmount the container's rootfs
+ 			daemon.Unmount(container)
+ 		}
+diff --git a/components/engine/daemon/volumes_unix.go b/components/engine/daemon/volumes_unix.go
+index 5ddb926..e9a6d37 100644
+--- a/components/engine/daemon/volumes_unix.go
++++ b/components/engine/daemon/volumes_unix.go
+@@ -109,6 +109,15 @@ func setBindModeIfNull(bind *volumemounts.MountPoint) {
+ }
+ 
+ func (daemon *Daemon) mountVolumes(container *container.Container) error {
++	if root, err := container.GetResourcePath(""); err == nil {
++		err = mount.ForceMount(root, root, "none", "bind")
++		if err != nil {
++			return mount.ErrMountAndRUnbindFailed
++		} else {
++			mount.ForceMount("", root, "none", "runbindable")
++		}
++	}
++
+ 	mounts, err := daemon.setupMounts(container)
+ 	if err != nil {
+ 		return err
+diff --git a/components/engine/pkg/mount/mount.go b/components/engine/pkg/mount/mount.go
+index 874aff6..a784e0d 100644
+--- a/components/engine/pkg/mount/mount.go
++++ b/components/engine/pkg/mount/mount.go
+@@ -1,6 +1,7 @@
+ package mount // import "github.com/docker/docker/pkg/mount"
+ 
+ import (
++	"errors"
+ 	"sort"
+ 	"strings"
+ 	"syscall"
+@@ -8,6 +9,10 @@ import (
+ 	"github.com/sirupsen/logrus"
+ )
+ 
++var (
++	ErrMountAndRUnbindFailed = errors.New("make mount and runbind failed")
++)
++
+ // FilterFunc is a type defining a callback function
+ // to filter out unwanted entries. It takes a pointer
+ // to an Info struct (not fully populated, currently
+-- 
+2.20.1
+

@@ -1,0 +1,53 @@
+From a42b2ba938d30e05fd15502a3dc6d3cb6a7d1b25 Mon Sep 17 00:00:00 2001
+From: lixiang <lixiang172@huawei.com>
+Date: Thu, 28 Nov 2019 17:37:40 +0800
+Subject: [PATCH] docker:Enable "disable-legacy-registry" function
+
+reason:Enable "disable-legacy-registry" function which is used for
+docker hot upgrade.
+
+Change-Id: I33dbb865d96d60ee2f758d204dea1a7f441d1a97
+Signed-off-by: lixiang <lixiang172@huawei.com>
+---
+ components/engine/cmd/dockerd/config.go |  2 --
+ components/engine/cmd/dockerd/daemon.go | 11 -----------
+ 2 files changed, 13 deletions(-)
+
+diff --git a/components/engine/cmd/dockerd/config.go b/components/engine/cmd/dockerd/config.go
+index 6f62b97..257b87f 100644
+--- a/components/engine/cmd/dockerd/config.go
++++ b/components/engine/cmd/dockerd/config.go
+@@ -93,8 +93,6 @@ func installRegistryServiceFlags(options *registry.ServiceOptions, flags *pflag.
+ 	flags.Var(insecureRegistries, "insecure-registry", "Enable insecure registry communication")
+ 
+ 	if runtime.GOOS != "windows" {
+-		// TODO: Remove this flag after 3 release cycles (18.03)
+ 		flags.BoolVar(&options.V2Only, "disable-legacy-registry", true, "Disable contacting legacy registries")
+-		flags.MarkHidden("disable-legacy-registry")
+ 	}
+ }
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 5fb8811..336078f 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -479,17 +479,6 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
+ 		return nil, err
+ 	}
+ 
+-	if runtime.GOOS != "windows" {
+-		if flags.Changed("disable-legacy-registry") {
+-			// TODO: Remove this error after 3 release cycles (18.03)
+-			return nil, errors.New("ERROR: The '--disable-legacy-registry' flag has been removed. Interacting with legacy (v1) registries is no longer supported")
+-		}
+-		if !conf.V2Only {
+-			// TODO: Remove this error after 3 release cycles (18.03)
+-			return nil, errors.New("ERROR: The 'disable-legacy-registry' configuration option has been removed. Interacting with legacy (v1) registries is no longer supported")
+-		}
+-	}
+-
+ 	if flags.Changed("graph") {
+ 		logrus.Warnf(`The "-g / --graph" flag is deprecated. Please use "--data-root" instead`)
+ 	}
+-- 
+1.8.3.1
+
