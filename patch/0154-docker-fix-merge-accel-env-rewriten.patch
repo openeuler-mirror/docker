@@ -1,0 +1,71 @@
+From 39da5897107b49f25f9c318a04ad79ec6753fb7a Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 31 Dec 2019 11:11:25 +0800
+Subject: [PATCH] docker: fix merge accel env rewriten
+
+Change-Id: If2c4c076d56e7807d0dceae9db63e7fe1a0492ba
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/container/container.go | 39 +++++++++++++++++++++---
+ 1 file changed, 35 insertions(+), 4 deletions(-)
+
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index d9d97f4022..8fd275ffa9 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -741,6 +741,40 @@ func (container *Container) CreateDaemonEnvironment(tty bool, linkedEnv []string
+ 	return env
+ }
+ 
++func getSpliter(s string) string {
++	if strings.Contains(s, ",") {
++		return ","
++	}
++	if strings.Contains(s, ";") {
++		return ";"
++	}
++	return ":"
++}
++
++func mergeOneEnv(el []string, k, v string) []string {
++	for i, e := range el {
++		ee := strings.SplitN(e, "=", 2)
++		if ee[0] != k {
++			continue
++		}
++		if len(ee) > 1 {
++			sep := getSpliter(ee[1] + v)
++			el[i] = k + "=" + ee[1] + sep + v
++		} else {
++			el[i] = k + "=" + v
++		}
++		return el
++	}
++	return append(el, k+"="+v)
++}
++
++func mergeEnv(el []string, em map[string]string) []string {
++	for k, v := range em {
++		el = mergeOneEnv(el, k, v)
++	}
++	return el
++}
++
+ func (c *Container) DropAccelAndCheckpointTo(store ViewDB) {
+ 	hc := c.HostConfig
+ 	cc := c.Config
+@@ -773,10 +807,7 @@ func (c *Container) DropAccelAndCheckpointTo(store ViewDB) {
+ 	}
+ 
+ 	if len(hc.AccelEnvironments) != 0 {
+-		for k, v := range hc.AccelEnvironments {
+-			env := fmt.Sprintf("%s=%s", k, v)
+-			cc.Env = append(cc.Env, env)
+-		}
++		cc.Env = mergeEnv(cc.Env, hc.AccelEnvironments)
+ 		logrus.Infof("upgrade Env %s", cc.Env)
+ 		hc.AccelEnvironments = nil
+ 		shouldco = true
+-- 
+2.17.1
+

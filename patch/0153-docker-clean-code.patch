@@ -1,0 +1,204 @@
+From 276da96d2e1019a36e4f7eeeb2f6cc9fd2963c97 Mon Sep 17 00:00:00 2001
+From: lixiang <lixiang172@huawei.com>
+Date: Thu, 19 Dec 2019 20:36:29 +0800
+Subject: [PATCH] docker: clean code
+
+reason: clean code
+
+Change-Id: Iab01231af397f78813d4a8452b6021690997dd40
+Signed-off-by: lixiang <lixiang172@huawei.com>
+---
+ components/engine/api/server/router/container/inspect.go |  4 +++-
+ components/engine/cmd/dockerd/daemon.go                  |  8 +++++---
+ .../engine/cmd/dockerd/hack/malformed_host_override.go   |  2 +-
+ components/engine/container/container.go                 |  2 +-
+ components/engine/daemon/graphdriver/overlay2/overlay.go |  9 +++++----
+ components/engine/image/tarexport/save.go                |  3 ++-
+ components/engine/pkg/ioutils/fswriters.go               | 16 +---------------
+ .../github.com/docker/libnetwork/osl/namespace_linux.go  |  2 +-
+ .../engine/vendor/github.com/sirupsen/logrus/exported.go |  5 +++++
+ 9 files changed, 24 insertions(+), 27 deletions(-)
+
+diff --git a/components/engine/api/server/router/container/inspect.go b/components/engine/api/server/router/container/inspect.go
+index cb6eb50..7c9e5f2 100644
+--- a/components/engine/api/server/router/container/inspect.go
++++ b/components/engine/api/server/router/container/inspect.go
+@@ -5,6 +5,7 @@ import (
+ 	"net/http"
+ 	"strconv"
+ 
++	"github.com/sirupsen/logrus"
+ 	"github.com/docker/docker/api/server/httputils"
+ )
+ 
+@@ -13,7 +14,8 @@ func (s *containerRouter) getContainersByName(ctx context.Context, w http.Respon
+ 	displaySize := httputils.BoolValue(r, "size")
+ 
+ 	version := httputils.VersionFromContext(ctx)
+-	timeout, _ := strconv.Atoi(r.Form.Get("t"))
++	timeout, sErr := strconv.Atoi(r.Form.Get("t"))
++	logrus.Devour(sErr)
+ 	json, err := s.backend.ContainerInspect(vars["name"], displaySize, version, timeout)
+ 	if err != nil {
+ 		return err
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 336078f..0b3fa0e 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -93,9 +93,11 @@ func cleanupLocalDBs(run, root string) {
+ 		logrus.Errorf("stat dblock failed %v", err)
+ 		return
+ 	}
+-	ioutil.WriteFile(dbLockPath, []byte{}, 0600)
+-	files, _ := ioutil.ReadDir(filepath.Join(run, "containerd"))
+-	olds, _ := ioutil.ReadDir(filepath.Join(run, "libcontainerd"))
++	logrus.Devour(ioutil.WriteFile(dbLockPath, []byte{}, 0600))
++	files, err := ioutil.ReadDir(filepath.Join(run, "containerd"))
++	logrus.Devour(err)
++	olds, err := ioutil.ReadDir(filepath.Join(run, "libcontainerd"))
++	logrus.Devour(err)
+ 	files = append(files, olds...)
+ 	for _, f := range files {
+ 		if len(f.Name()) == 64 { // running container exist
+diff --git a/components/engine/cmd/dockerd/hack/malformed_host_override.go b/components/engine/cmd/dockerd/hack/malformed_host_override.go
+index 7852f62..6a8ab82 100644
+--- a/components/engine/cmd/dockerd/hack/malformed_host_override.go
++++ b/components/engine/cmd/dockerd/hack/malformed_host_override.go
+@@ -132,7 +132,7 @@ func (l *MalformedHostHeaderOverrideConn) Read(b []byte) (n int, err error) {
+ 				break
+ 			}
+ 			if i % 10 == 0 { // set interval = 1s
+-				l.Conn.SetReadDeadline(aLongTimeAgo)
++				logrus.Devour(l.Conn.SetReadDeadline(aLongTimeAgo))
+ 				logrus.Debugf("fix hijack by set read deadline force")
+ 			}
+ 		}
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index d9d97f4..53d41bd 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -783,7 +783,7 @@ func (c *Container) DropAccelAndCheckpointTo(store ViewDB) {
+ 	}
+ 
+ 	if shouldco {
+-		c.CheckpointTo(store)
++		logrus.Devour(c.CheckpointTo(store))
+ 	}
+ }
+ 
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 8f07d59..7fac2c3 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -250,14 +250,16 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ }
+ 
+ func (d *Driver) cleanupLinkDir() {
+-	filepath.Walk(path.Join(d.home, linkDir), func(path string, f os.FileInfo, err error) error {
++	err := filepath.Walk(path.Join(d.home, linkDir), func(path string, f os.FileInfo, err error) error {
+ 		if _, serr := filepath.EvalSymlinks(path); serr != nil {
+ 			logrus.Warnf("[overlay2]: remove invalid symlink: %s", path)
+-			os.RemoveAll(path)
++			logrus.Devour(os.RemoveAll(path))
+ 		}
+ 		// always return nil, to walk all the symlink
+ 		return nil
+ 	})
++	logrus.Devour(err)
++
+ 
+ 	return
+ }
+@@ -785,8 +787,7 @@ func (d *Driver) Exists(id string) bool {
+ 			// check symlink
+ 			_, rerr = os.Stat(path.Join(d.home, linkDir, string(lstr)))
+ 			if rerr != nil {
+-				os.RemoveAll(path.Join(d.home, linkDir, string(lstr)))
+-
++				logrus.Devour(os.RemoveAll(path.Join(d.home, linkDir, string(lstr))))
+ 				logrus.Infof("[overlay2]: symlink (%s) is missing, create a new one", lstr)
+ 				if rerr = os.Symlink(path.Join("..", id, "diff"), path.Join(d.home, linkDir, string(lstr))); rerr != nil {
+ 					return false
+diff --git a/components/engine/image/tarexport/save.go b/components/engine/image/tarexport/save.go
+index 0683f17..f83a26e 100644
+--- a/components/engine/image/tarexport/save.go
++++ b/components/engine/image/tarexport/save.go
+@@ -21,6 +21,7 @@ import (
+ 	"github.com/docker/docker/pkg/system"
+ 	"github.com/opencontainers/go-digest"
+ 	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ type imageDescriptor struct {
+@@ -415,7 +416,7 @@ func (s *saveSession) saveLayer(id layer.ChainID, legacyImg image.V1Image, creat
+ 		if s.compress {
+ 			reader, compressionDone = dd.Compress(arch)
+ 			defer func(closer io.Closer) {
+-				closer.Close()
++				logrus.Devour(closer.Close())
+ 				<-compressionDone
+ 			}(reader)
+ 		}
+diff --git a/components/engine/pkg/ioutils/fswriters.go b/components/engine/pkg/ioutils/fswriters.go
+index 093f11a..5d68dee 100644
+--- a/components/engine/pkg/ioutils/fswriters.go
++++ b/components/engine/pkg/ioutils/fswriters.go
+@@ -30,20 +30,6 @@ func NewAtomicFileWriter(filename string, perm os.FileMode) (io.WriteCloser, err
+ 	}, nil
+ }
+ 
+-func CleanupTmpFilesRecursive(rootDir string) {
+-	var removals []string
+-	filepath.Walk(rootDir, func(path string, f os.FileInfo, err error) error {
+-		if strings.HasPrefix(f.Name(), ".tmp-") {
+-			removals = append(removals, path)
+-		}
+-		return nil
+-	})
+-
+-	for _, r := range removals {
+-		os.RemoveAll(r)
+-	}
+-}
+-
+ // CleanupAtomicFile cleanup redundant atomic files
+ func CleanupAtomicFile(filename string) error {
+ 	baseName := ".tmp-" + filepath.Base(filename)
+@@ -57,7 +43,7 @@ func CleanupAtomicFile(filename string) error {
+ 	for _, f := range fs {
+ 		if strings.Contains(f.Name(), baseName) {
+ 			logrus.Warnf("Remove temporary file: %s", filepath.Join(dir, f.Name()))
+-			os.RemoveAll(filepath.Join(dir, f.Name()))
++			logrus.Devour(os.RemoveAll(filepath.Join(dir, f.Name())))
+ 		}
+ 	}
+ 	return nil
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go b/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go
+index f97b286..03537bd 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/osl/namespace_linux.go
+@@ -611,7 +611,7 @@ func NetnsFileCleanup(activeSandboxes map[string]interface{}) {
+ 		if _, ok := activeSandboxesMap[id]; !ok {
+ 			path := filepath.Join(prefix, id)
+ 			// cleanup netns file if not active
+-			syscall.Unmount(path, syscall.MNT_DETACH)
++			logrus.Devour(syscall.Unmount(path, syscall.MNT_DETACH))
+ 			if err := os.Remove(path); err != nil {
+ 				logrus.Warnf("Failed to cleanup netns file %s: %s", path, err)
+ 			}
+diff --git a/components/engine/vendor/github.com/sirupsen/logrus/exported.go b/components/engine/vendor/github.com/sirupsen/logrus/exported.go
+index eb612a6..db23fd5 100644
+--- a/components/engine/vendor/github.com/sirupsen/logrus/exported.go
++++ b/components/engine/vendor/github.com/sirupsen/logrus/exported.go
+@@ -199,3 +199,7 @@ func Panicln(args ...interface{}) {
+ func Fatalln(args ...interface{}) {
+ 	std.Fatalln(args...)
+ }
++
++// Devour will eats any error
++func Devour(err error) {
++}
+-- 
+1.8.3.1
+

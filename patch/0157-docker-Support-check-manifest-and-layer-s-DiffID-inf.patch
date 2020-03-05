@@ -1,0 +1,52 @@
+From b8160cf70bcb59ff4baea98f8e6eeb700b69eea1 Mon Sep 17 00:00:00 2001
+From: lixiang <lixiang172@huawei.com>
+Date: Sun, 19 Jan 2020 09:09:14 +0800
+Subject: [PATCH] docker: Support check manifest and layer's DiffID info when
+ pulling image failed
+
+reason: When pulling image, the downloaded layer and the layer recorded in
+the config could be different and which will cause the
+"errRootFSMismatch" error. What we should do is to trace more info on that and
+log them for better analysing after error occured.
+
+Change-Id: Ib09a840e34becd403f0336ae8c93c0f4aa064095
+Signed-off-by: lixiang <lixiang172@huawei.com>
+---
+ components/engine/distribution/pull_v2.go | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/components/engine/distribution/pull_v2.go b/components/engine/distribution/pull_v2.go
+index 9d2a303..99cee79 100644
+--- a/components/engine/distribution/pull_v2.go
++++ b/components/engine/distribution/pull_v2.go
+@@ -399,11 +399,13 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform
+ 	case *schema2.DeserializedManifest:
+ 		id, manifestDigest, err = p.pullSchema2(ctx, ref, v, platform)
+ 		if err != nil {
++			logrus.Errorf("try to pull schema2 failed. manifest: %+v", manifest.References())
+ 			return false, err
+ 		}
+ 	case *manifestlist.DeserializedManifestList:
+ 		id, manifestDigest, err = p.pullManifestList(ctx, ref, v, platform)
+ 		if err != nil {
++			logrus.Errorf("try to get manifest data from storage failed. manifest: %+v", manifest.References())
+ 			return false, err
+ 		}
+ 	default:
+@@ -714,11 +716,13 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
+ 		// Otherwise the image config could be referencing layers that aren't
+ 		// included in the manifest.
+ 		if len(downloadedRootFS.DiffIDs) != len(configRootFS.DiffIDs) {
++			logrus.Errorf("config layers: %v pulled/loaded: %v", configRootFS.DiffIDs, downloadedRootFS.DiffIDs)
+ 			return "", "", errRootFSMismatch
+ 		}
+ 
+ 		for i := range downloadedRootFS.DiffIDs {
+ 			if downloadedRootFS.DiffIDs[i] != configRootFS.DiffIDs[i] {
++				logrus.Errorf("config layer do not match pulled/loaded layer. config:%v pulled:%v", configRootFS.DiffIDs[i], downloadedRootFS.DiffIDs[i])
+ 				return "", "", errRootFSMismatch
+ 			}
+ 		}
+-- 
+1.8.3.1
+
