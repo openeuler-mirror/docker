@@ -1,0 +1,65 @@
+From b254e628f9745f4b7b2b56f6b2818c6c6ad76d31 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Thu, 9 Jan 2020 03:06:30 +0800
+Subject: [PATCH] docekr: only update log-opt tag for containers from 1.11.2
+
+reason:only update log-opt tag for containers from 1.11.2
+to minimize influence on configs.
+
+Change-Id: I6eea45477a75063c7b5c296755d28f70dc200117
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/engine/daemon/daemon.go |  7 ++++++-
+ components/engine/daemon/logs.go   | 14 ++++++++++++++
+ 2 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 0dab6db..f591878 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -327,11 +327,16 @@ func (daemon *Daemon) restore() error {
+ 		// The LogConfig.Type is empty if the container was created before docker 1.12 with default log driver.
+ 		// We should rewrite it to use the daemon defaults.
+ 		// Fixes https://github.com/docker/docker/issues/22536
+-		if c.HostConfig.LogConfig.Type == "" || c.HostConfig.LogConfig.Type == daemon.defaultLogConfig.Type {
++		if c.HostConfig.LogConfig.Type == "" {
+ 			if err := daemon.mergeAndVerifyLogConfig(&c.HostConfig.LogConfig); err != nil {
+ 				logrus.Errorf("Failed to verify log config for container %s: %q", c.ID, err)
+ 				continue
+ 			}
++		} else if c.HostConfig.LogConfig.Type == daemon.defaultLogConfig.Type {
++			if err := daemon.mergeAndVerifyOriginContainersLogConfig(&c.HostConfig.LogConfig); err != nil {
++				logrus.Errorf("Failed to verify log config for container %s: %q", c.ID, err)
++				continue
++			}
+ 		}
+ 	}
+ 
+diff --git a/components/engine/daemon/logs.go b/components/engine/daemon/logs.go
+index 668a75c..8dddbcf 100644
+--- a/components/engine/daemon/logs.go
++++ b/components/engine/daemon/logs.go
+@@ -193,6 +193,20 @@ func (daemon *Daemon) mergeAndVerifyLogConfig(cfg *containertypes.LogConfig) err
+ 	return logger.ValidateLogOpts(cfg.Type, cfg.Config)
+ }
+ 
++func (daemon *Daemon) mergeAndVerifyOriginContainersLogConfig(cfg *containertypes.LogConfig) error {
++	if cfg.Config == nil {
++		cfg.Config = make(map[string]string)
++	}
++
++	if _, ok := daemon.defaultLogConfig.Config["tag"]; ok {
++		if _, ok := cfg.Config["tag"]; !ok {
++			cfg.Config["tag"] = daemon.defaultLogConfig.Config["tag"]
++		}
++	}
++
++	return logger.ValidateLogOpts(cfg.Type, cfg.Config)
++}
++
+ func (daemon *Daemon) setupDefaultLogConfig() error {
+ 	config := daemon.configStore
+ 	if len(config.LogConfig.Config) > 0 {
+-- 
+1.8.3.1
+

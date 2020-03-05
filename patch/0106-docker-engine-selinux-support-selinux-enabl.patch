@@ -1,0 +1,2759 @@
+From 5c8b4955686c20428b69e5a697a5dc819ff87a43 Mon Sep 17 00:00:00 2001
+From: zhangsong34 <zhangsong34@huawei.com>
+Date: Fri, 22 Feb 2019 17:58:59 +0800
+Subject: [PATCH 106/111] docker-engine-selinux: support
+ --selinux-enabled=true for daemon
+
+reason:support --selinux-enabled=true for daemon, fix semodule insert operation
+failed.
+
+Change-Id: Ieaad90896c25aed63767141775f4679c07736430
+Signed-off-by: zhangsong34 <zhangsong34@huawei.com>
+---
+ .../docker-engine-selinux/container.fc        |  83 ++
+ .../docker-engine-selinux/container.if        | 713 +++++++++++++
+ .../docker-engine-selinux/container.te        | 966 ++++++++++++++++++
+ .../docker-engine-selinux/docker.fc           |  20 -
+ .../docker-engine-selinux/docker.if           | 461 ---------
+ .../docker-engine-selinux/docker.te           | 414 --------
+ .../docker-engine-selinux-euleros.spec        |  15 +-
+ 10 files changed, 1777 insertions(+), 903 deletions(-)
+ create mode 100644 components/engine/contrib/selinux-euleros/docker-engine-selinux/container.fc
+ create mode 100644 components/engine/contrib/selinux-euleros/docker-engine-selinux/container.if
+ create mode 100644 components/engine/contrib/selinux-euleros/docker-engine-selinux/container.te
+ delete mode 100644 components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.fc
+ delete mode 100644 components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.if
+ delete mode 100644 components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.te
+
+diff --git a/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.fc b/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.fc
+new file mode 100644
+index 0000000000..0d13c3d1fb
+--- /dev/null
++++ b/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.fc
+@@ -0,0 +1,83 @@
++/root/\.docker	gen_context(system_u:object_r:container_home_t,s0)
++
++/usr/libexec/docker/.*	--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/libexec/docker/docker.*	--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/docker.*		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/lxc-.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/lxd-.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/lxc			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/lxd			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/fuidshift		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/libexec/lxc/.*		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/libexec/lxd/.*		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/podman		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/local/bin/podman		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/local/bin/runc		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/runc			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/container[^/]*plugin	--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/rhel-push-plugin	--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/sbin/rhel-push-plugin	--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/docker-latest		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/docker-current		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/docker-novolume-plugin	--	gen_context(system_u:object_r:container_auth_exec_t,s0)
++/usr/sbin/crio.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/local/sbin/crio.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/crio.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/local/bin/crio.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/bin/ocid.*			--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/sbin/ocid.*		--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++/usr/lib/docker/docker-novolume-plugin	--	gen_context(system_u:object_r:container_auth_exec_t,s0)
++/usr/lib/docker/[^/]*plugin	--	gen_context(system_u:object_r:container_runtime_exec_t,s0)
++
++/usr/lib/systemd/system/docker.*		--	gen_context(system_u:object_r:container_unit_file_t,s0)
++/usr/lib/systemd/system/lxd.*		--	gen_context(system_u:object_r:container_unit_file_t,s0)
++
++/etc/docker(/.*)?		gen_context(system_u:object_r:container_config_t,s0)
++/etc/docker-latest(/.*)?		gen_context(system_u:object_r:container_config_t,s0)
++/etc/crio(/.*)?		gen_context(system_u:object_r:container_config_t,s0)
++/exports(/.*)?		gen_context(system_u:object_r:container_var_lib_t,s0)
++
++/var/lib/lxc(/.*)?	gen_context(system_u:object_r:container_var_lib_t,s0)
++/var/lib/lxd(/.*)?	gen_context(system_u:object_r:container_var_lib_t,s0)
++/var/lib/docker(/.*)?	gen_context(system_u:object_r:container_var_lib_t,s0)
++/var/lib/docker/.*/config\.env	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker/containers/.*/.*\.log		gen_context(system_u:object_r:container_log_t,s0)
++/var/lib/docker/containers/.*/hostname		gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker/containers/.*/hosts		gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker/init(/.*)?		gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker/overlay(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker/overlay2(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++
++/var/lib/containers(/.*)?	gen_context(system_u:object_r:container_var_lib_t,s0)
++/var/lib/containers/overlay(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/containers/overlay2(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/containers/atomic(/.*)?	<<none>>
++/var/lib/containers/storage/overlay(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/containers/storage/overlay2(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/ocid(/.*)?	gen_context(system_u:object_r:container_var_lib_t,s0)
++/var/lib/ocid/sandboxes(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++
++/var/lib/origin(/.*)?	gen_context(system_u:object_r:container_file_t,s0)
++
++/var/lib/docker-latest(/.*)?		gen_context(system_u:object_r:container_var_lib_t,s0)
++/var/lib/docker-latest/.*/config\.env	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker-latest/containers/.*/.*\.log	gen_context(system_u:object_r:container_log_t,s0)
++/var/lib/docker-latest/containers/.*/hostname		gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker-latest/containers/.*/hosts		gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker-latest/init(/.*)?		gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker-latest/overlay(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++/var/lib/docker-latest/overlay2(/.*)?	gen_context(system_u:object_r:container_share_t,s0)
++
++/var/run/containers(/.*)?		gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/crio(/.*)?		gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/docker(/.*)?		gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/containerd(/.*)?	gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/docker\.pid		--	gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/docker\.sock		-s	gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/docker-client(/.*)?		gen_context(system_u:object_r:container_var_run_t,s0)
++/var/run/docker/plugins(/.*)?		gen_context(system_u:object_r:container_plugin_var_run_t,s0)
++
++/var/lock/lxc(/.*)?		gen_context(system_u:object_r:container_lock_t,s0)
++
++/var/log/lxc(/.*)?		gen_context(system_u:object_r:container_log_t,s0)
++/var/log/lxd(/.*)?		gen_context(system_u:object_r:container_log_t,s0)
+diff --git a/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.if b/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.if
+new file mode 100644
+index 0000000000..3853ca5bde
+--- /dev/null
++++ b/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.if
+@@ -0,0 +1,713 @@
++
++## <summary>The open-source application container engine.</summary>
++
++########################################
++## <summary>
++##	Execute container in the container domain.
++## </summary>
++## <param name="domain">
++## <summary>
++##	Domain allowed to transition.
++## </summary>
++## </param>
++#
++interface(`container_runtime_domtrans',`
++	gen_require(`
++		type container_runtime_t, container_runtime_exec_t;
++		type container_runtime_tmpfs_t;
++	')
++
++	corecmd_search_bin($1)
++	domtrans_pattern($1, container_runtime_exec_t, container_runtime_t)
++')
++
++########################################
++## <summary>
++##	Execute container runtime in the congtainer runtime domain
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed to transition.
++##	</summary>
++## </param>
++## <param name="role">
++##	<summary>
++##	Role allowed access.
++##	</summary>
++## </param>
++## <rolecap/>
++#
++interface(`container_runtime_run',`
++	gen_require(`
++		type container_runtime_t;
++	')
++
++	container_domtrans($1)
++	roleattribute $2 container_runtime_t;
++')
++
++
++########################################
++## <summary>
++##	Execute container in the caller domain.
++## </summary>
++## <param name="domain">
++## <summary>
++##	Domain allowed to transition.
++## </summary>
++## </param>
++#
++interface(`container_runtime_exec',`
++	gen_require(`
++		type container_runtime_exec_t;
++	')
++
++	corecmd_search_bin($1)
++	can_exec($1, container_runtime_exec_t)
++')
++
++########################################
++## <summary>
++##	Read the process state of container runtime
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_read_state',`
++	gen_require(`
++		type container_runtime_t;
++	')
++
++	ps_process_pattern($1, container_runtime_t)
++')
++
++########################################
++## <summary>
++##	Search container lib directories.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_search_lib',`
++	gen_require(`
++		type container_var_lib_t;
++	')
++
++	allow $1 container_var_lib_t:dir search_dir_perms;
++	files_search_var_lib($1)
++')
++
++########################################
++## <summary>
++##	Execute container lib directories.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_exec_lib',`
++	gen_require(`
++		type container_var_lib_t;
++	')
++
++	allow $1 container_var_lib_t:dir search_dir_perms;
++	can_exec($1, container_var_lib_t)
++')
++
++########################################
++## <summary>
++##	Read container lib files.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_read_lib_files',`
++	gen_require(`
++		type container_var_lib_t;
++	')
++
++	files_search_var_lib($1)
++	read_files_pattern($1, container_var_lib_t, container_var_lib_t)
++')
++
++########################################
++## <summary>
++##	Read container share files.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_read_share_files',`
++	gen_require(`
++		type container_share_t;
++	')
++
++	files_search_var_lib($1)
++	list_dirs_pattern($1, container_share_t, container_share_t)
++	read_files_pattern($1, container_share_t, container_share_t)
++	read_lnk_files_pattern($1, container_share_t, container_share_t)
++')
++
++######################################
++## <summary>
++##	Allow the specified domain to execute container shared files
++##	in the caller domain.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_exec_share_files',`
++	gen_require(`
++		type container_share_t;
++	')
++
++	can_exec($1, container_share_t)
++')
++
++########################################
++## <summary>
++##	Manage container lib files.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_manage_lib_files',`
++	gen_require(`
++		type container_var_lib_t;
++	')
++
++	files_search_var_lib($1)
++	manage_files_pattern($1, container_var_lib_t, container_var_lib_t)
++	manage_lnk_files_pattern($1, container_var_lib_t, container_var_lib_t)
++')
++
++########################################
++## <summary>
++##	Manage container files.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_manage_files',`
++	gen_require(`
++		type container_files_t;
++	')
++
++	manage_files_pattern($1, container_files_t, container_files_t)
++	manage_lnk_files_pattern($1, container_files_t, container_files_t)
++')
++
++########################################
++## <summary>
++##	Manage container directories.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_manage_dirs',`
++	gen_require(`
++		type container_files_t;
++	')
++
++	manage_dirs_pattern($1, container_files_t, container_files_t)
++')
++
++########################################
++## <summary>
++##	Manage container lib directories.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_manage_lib_dirs',`
++	gen_require(`
++		type container_var_lib_t;
++	')
++
++	files_search_var_lib($1)
++	manage_dirs_pattern($1, container_var_lib_t, container_var_lib_t)
++')
++
++########################################
++## <summary>
++##	Create objects in a container var lib directory
++##	with an automatic type transition to
++##	a specified private type.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++## <param name="private_type">
++##	<summary>
++##	The type of the object to create.
++##	</summary>
++## </param>
++## <param name="object_class">
++##	<summary>
++##	The class of the object to be created.
++##	</summary>
++## </param>
++## <param name="name" optional="true">
++##	<summary>
++##	The name of the object being created.
++##	</summary>
++## </param>
++#
++interface(`container_lib_filetrans',`
++	gen_require(`
++		type container_var_lib_t;
++	')
++
++	filetrans_pattern($1, container_var_lib_t, $2, $3, $4)
++')
++
++########################################
++## <summary>
++##	Read container PID files.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_read_pid_files',`
++	gen_require(`
++		type container_var_run_t;
++	')
++
++	files_search_pids($1)
++	read_files_pattern($1, container_var_run_t, container_var_run_t)
++')
++
++########################################
++## <summary>
++##	Execute container server in the container domain.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed to transition.
++##	</summary>
++## </param>
++#
++interface(`container_systemctl',`
++	gen_require(`
++		type container_runtime_t;
++		type container_unit_file_t;
++	')
++
++	systemd_exec_systemctl($1)
++	init_reload_services($1)
++        systemd_read_fifo_file_passwd_run($1)
++	allow $1 container_unit_file_t:file read_file_perms;
++	allow $1 container_unit_file_t:service manage_service_perms;
++
++	ps_process_pattern($1, container_runtime_t)
++')
++
++########################################
++## <summary>
++##	Read and write container shared memory.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_rw_sem',`
++	gen_require(`
++		type container_runtime_t;
++	')
++
++	allow $1 container_runtime_t:sem rw_sem_perms;
++')
++
++#######################################
++## <summary>
++##  Read and write the container pty type.
++## </summary>
++## <param name="domain">
++##  <summary>
++##  Domain allowed access.
++##  </summary>
++## </param>
++#
++interface(`container_use_ptys',`
++    gen_require(`
++        type container_devpts_t;
++    ')
++
++    allow $1 container_devpts_t:chr_file rw_term_perms;
++')
++
++#######################################
++## <summary>
++##      Allow domain to create container content
++## </summary>
++## <param name="domain">
++##      <summary>
++##      Domain allowed access.
++##      </summary>
++## </param>
++#
++interface(`container_filetrans_named_content',`
++
++    gen_require(`
++        type container_var_lib_t;
++        type container_share_t;
++    	type container_log_t;
++        type container_var_run_t;
++        type container_home_t;
++    ')
++
++    files_pid_filetrans($1, container_var_run_t, file, "container.pid")
++    files_pid_filetrans($1, container_var_run_t, file, "docker.pid")
++    files_pid_filetrans($1, container_var_run_t, sock_file, "container.sock")
++    files_pid_filetrans($1, container_var_run_t, dir, "container-client")
++    files_pid_filetrans($1, container_var_run_t, dir, "docker")
++    files_pid_filetrans($1, container_var_run_t, dir, "containerd")
++    files_pid_filetrans($1, container_var_run_t, dir, "ocid")
++    files_pid_filetrans($1, container_var_run_t, dir, "containers")
++    logging_log_filetrans($1, container_log_t, dir, "lxc")
++    files_var_lib_filetrans($1, container_var_lib_t, dir, "containers")
++    files_var_lib_filetrans($1, container_file_t, dir, "origin")
++    files_var_lib_filetrans($1, container_var_lib_t, dir, "ocid")
++    files_var_lib_filetrans($1, container_var_lib_t, dir, "docker")
++    files_var_lib_filetrans($1, container_var_lib_t, dir, "docker-latest")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, file, "config.env")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, file, "hosts")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, file, "hostname")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, file, "resolv.conf")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, dir, "sandboxes")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, dir, "init")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, dir, "overlay")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, dir, "overlay2")
++    filetrans_pattern($1, container_var_lib_t, container_share_t, dir, "atomic")
++    userdom_admin_home_dir_filetrans($1, container_home_t, dir, ".container")
++
++')
++
++########################################
++## <summary>
++##	Connect to container over a unix stream socket.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_stream_connect',`
++	gen_require(`
++		type container_runtime_t, container_var_run_t, container_runtime_tmpfs_t;
++	')
++
++	files_search_pids($1)
++	stream_connect_pattern($1, container_var_run_t, container_var_run_t, container_runtime_t)
++	stream_connect_pattern($1, container_runtime_tmpfs_t, container_runtime_tmpfs_t, container_runtime_t)
++	allow $1 container_runtime_tmpfs_t:lnk_file read_lnk_file_perms;
++')
++
++########################################
++## <summary>
++##	Connect to SPC containers over a unix stream socket.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_spc_stream_connect',`
++	gen_require(`
++		type spc_t, spc_var_run_t;
++	')
++
++	files_search_pids($1)
++	files_write_all_pid_sockets($1)
++	allow $1 spc_t:unix_stream_socket connectto;
++')
++
++########################################
++## <summary>
++##	All of the rules required to administrate
++##	an container environment
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_admin',`
++	gen_require(`
++		type container_runtime_t;
++		type container_var_lib_t, container_var_run_t;
++		type container_unit_file_t;
++		type container_lock_t;
++		type container_log_t;
++		type container_config_t;
++	')
++
++	allow $1 container_runtime_t:process { ptrace signal_perms };
++	ps_process_pattern($1, container_runtime_t)
++
++	admin_pattern($1, container_config_t)
++
++	files_search_var_lib($1)
++	admin_pattern($1, container_var_lib_t)
++
++	files_search_pids($1)
++	admin_pattern($1, container_var_run_t)
++
++	files_search_locks($1)
++	admin_pattern($1, container_lock_t)
++
++	logging_search_logs($1)
++	admin_pattern($1, container_log_t)
++
++	container_systemctl($1)
++	admin_pattern($1, container_unit_file_t)
++	allow $1 container_unit_file_t:service all_service_perms;
++
++	optional_policy(`
++		systemd_passwd_agent_exec($1)
++		systemd_read_fifo_file_passwd_run($1)
++	')
++')
++
++########################################
++## <summary>
++##	Execute container_auth_exec_t in the container_auth domain.
++## </summary>
++## <param name="domain">
++## <summary>
++##	Domain allowed to transition.
++## </summary>
++## </param>
++#
++interface(`container_auth_domtrans',`
++	gen_require(`
++		type container_auth_t, container_auth_exec_t;
++	')
++
++	corecmd_search_bin($1)
++	domtrans_pattern($1, container_auth_exec_t, container_auth_t)
++')
++
++######################################
++## <summary>
++##	Execute container_auth in the caller domain.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_auth_exec',`
++	gen_require(`
++		type container_auth_exec_t;
++	')
++
++	corecmd_search_bin($1)
++	can_exec($1, container_auth_exec_t)
++')
++
++########################################
++## <summary>
++##	Connect to container_auth over a unix stream socket.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_auth_stream_connect',`
++	gen_require(`
++		type container_auth_t, container_plugin_var_run_t;
++	')
++
++	files_search_pids($1)
++	stream_connect_pattern($1, container_plugin_var_run_t, container_plugin_var_run_t, container_auth_t)
++')
++
++########################################
++## <summary>
++##	container domain typebounds calling domain.
++## </summary>
++## <param name="domain">
++## <summary>
++##	Domain to be typebound.
++## </summary>
++## </param>
++#
++interface(`container_runtime_typebounds',`
++	gen_require(`
++		type container_runtime_t;
++	')
++
++	allow container_runtime_t $1:process2 nnp_transition;
++')
++
++########################################
++## <summary>
++##	Allow any container_runtime_exec_t to be an entrypoint of this domain
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++## <rolecap/>
++#
++interface(`container_runtime_entrypoint',`
++	gen_require(`
++		type container_runtime_exec_t;
++	')
++	allow $1 container_runtime_exec_t:file entrypoint;
++')
++
++interface(`docker_exec_lib',`
++	container_exec_lib($1)
++')
++
++interface(`docker_read_share_files',`
++	container_read_share_files($1)
++')
++
++interface(`docker_exec_share_files',`
++	container_exec_share_files($1)
++')
++
++interface(`docker_manage_lib_files',`
++	container_manage_lib_files($1)
++')
++
++
++interface(`docker_manage_lib_dirs',`
++	container_manage_lib_dirs($1)
++')
++
++interface(`docker_lib_filetrans',`
++	container_lib_filetrans($1, $2, $3, $4)
++')
++
++interface(`docker_read_pid_files',`
++	container_read_pid_files($1)
++')
++
++interface(`docker_systemctl',`
++	container_systemctl($1)
++')
++
++interface(`docker_use_ptys',`
++	container_use_ptys($1)
++')
++
++interface(`docker_stream_connect',`
++	container_stream_connect($1)
++')
++
++interface(`docker_spc_stream_connect',`
++	container_spc_stream_connect($1)
++')
++
++########################################
++## <summary>
++##	Read the process state of spc containers
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_spc_read_state',`
++	gen_require(`
++		type spc_t;
++	')
++
++	ps_process_pattern($1, spc_t)
++')
++
++########################################
++## <summary>
++##	Creates types and rules for a basic
++##	container process domain.
++## </summary>
++## <param name="prefix">
++##	<summary>
++##	Prefix for the domain.
++##	</summary>
++## </param>
++#
++template(`container_domain_template',`
++	gen_require(`
++		attribute container_domain;
++		type container_runtime_t;
++		type container_var_lib_t;
++		type container_share_t;
++	')
++
++	type $1_t, container_domain;
++	domain_type($1_t)
++	domain_user_exemption_target($1_t)
++	mls_rangetrans_target($1_t)
++	mcs_constrained($1_t)
++	role system_r types $1_t;
++	allow $1_t { container_var_lib_t container_share_t }:file entrypoint;
++
++	kernel_read_all_proc($1_t)
++')
++
++########################################
++## <summary>
++##	Read and write a spc_t unnamed pipe.
++## </summary>
++## <param name="domain">
++##	<summary>
++##	Domain allowed access.
++##	</summary>
++## </param>
++#
++interface(`container_spc_rw_pipes',`
++	gen_require(`
++		type spc_t;
++	')
++
++	allow $1 spc_t:fifo_file rw_inherited_fifo_file_perms;
++')
+diff --git a/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.te b/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.te
+new file mode 100644
+index 0000000000..14bd4f38d6
+--- /dev/null
++++ b/components/engine/contrib/selinux-euleros/docker-engine-selinux/container.te
+@@ -0,0 +1,966 @@
++policy_module(container, 2.68.0)
++gen_require(`
++	class passwd rootok;
++	type container_file_t;
++')
++
++########################################
++#
++# Declarations
++#
++
++## <desc>
++##  <p>
++##  Determine whether container can
++##  connect to all TCP ports.
++##  </p>
++## </desc>
++gen_tunable(container_connect_any, false)
++
++## <desc>
++## <p>
++## Allow sandbox containers to manage cgroup (systemd)
++## </p>
++## </desc>
++gen_tunable(container_manage_cgroup, false)
++
++type container_runtime_t alias docker_t;
++type container_runtime_exec_t alias docker_exec_t;
++init_daemon_domain(container_runtime_t, container_runtime_exec_t)
++domain_subj_id_change_exemption(container_runtime_t)
++domain_role_change_exemption(container_runtime_t)
++can_exec(container_runtime_t,container_runtime_exec_t)
++attribute container_domain;
++attribute container_net_domain;
++allow container_runtime_t container_domain:process transition;
++allow container_runtime_t container_domain:process2 { nnp_transition nosuid_transition };
++
++type spc_t;
++domain_type(spc_t)
++role system_r types spc_t;
++
++type container_auth_t alias docker_auth_t;
++type container_auth_exec_t alias docker_auth_exec_t;
++init_daemon_domain(container_auth_t, container_auth_exec_t)
++
++type spc_var_run_t;
++files_pid_file(spc_var_run_t)
++
++type container_var_lib_t alias docker_var_lib_t;
++files_type(container_var_lib_t)
++
++type container_home_t alias docker_home_t;
++userdom_user_home_content(container_home_t)
++
++type container_config_t alias docker_config_t;
++files_config_file(container_config_t)
++
++type container_lock_t alias docker_lock_t;
++files_lock_file(container_lock_t)
++
++type container_log_t alias docker_log_t;
++logging_log_file(container_log_t)
++
++type container_runtime_tmp_t alias docker_tmp_t;
++files_tmp_file(container_runtime_tmp_t)
++
++type container_runtime_tmpfs_t alias docker_tmpfs_t;
++files_tmpfs_file(container_runtime_tmpfs_t)
++
++type container_var_run_t alias docker_var_run_t;
++files_pid_file(container_var_run_t)
++
++type container_plugin_var_run_t alias docker_plugin_var_run_t;
++files_pid_file(container_plugin_var_run_t)
++
++type container_unit_file_t alias docker_unit_file_t;
++systemd_unit_file(container_unit_file_t)
++
++type container_devpts_t alias docker_devpts_t;
++term_pty(container_devpts_t)
++
++type container_share_t alias docker_share_t;
++files_mountpoint(container_share_t)
++
++type container_port_t alias docker_port_t;
++corenet_port(container_port_t)
++
++#ifdef(`enable_mcs',`
++#	init_ranged_daemon_domain(container_runtime_t, container_runtime_exec_t, s0 - mcs_systemhigh)
++#')
++
++ifdef(`enable_mls',`
++	init_ranged_daemon_domain(container_runtime_t, container_runtime_exec_t, s0 - mls_systemhigh)
++')
++
++########################################
++#
++# container local policy
++#
++allow container_runtime_t self:capability { chown kill fowner fsetid mknod net_admin net_bind_service net_raw setfcap sys_resource };
++allow container_runtime_t self:tun_socket { create_socket_perms relabelto };
++allow container_runtime_t self:process ~setcurrent;
++allow container_runtime_t self:passwd rootok;
++allow container_runtime_t self:fd use;
++allow container_runtime_t self:file mounton;
++
++allow container_runtime_t self:fifo_file rw_fifo_file_perms;
++allow container_runtime_t self:fifo_file manage_file_perms;
++allow container_runtime_t self:msg all_msg_perms;
++allow container_runtime_t self:sem create_sem_perms;
++allow container_runtime_t self:shm create_shm_perms;
++allow container_runtime_t self:msgq create_msgq_perms;
++allow container_runtime_t self:unix_stream_socket create_stream_socket_perms;
++allow container_runtime_t self:tcp_socket create_stream_socket_perms;
++allow container_runtime_t self:udp_socket create_socket_perms;
++allow container_runtime_t self:capability2 block_suspend;
++allow container_runtime_t container_port_t:tcp_socket name_bind;
++allow container_runtime_t self:filesystem associate;
++allow container_runtime_t self:packet_socket create_socket_perms;
++allow container_runtime_t self:socket create_socket_perms;
++allow container_runtime_t self:rawip_socket create_stream_socket_perms;
++allow container_runtime_t self:netlink_netfilter_socket create_socket_perms;
++allow container_runtime_t self:netlink_kobject_uevent_socket create_socket_perms;
++allow container_runtime_t self:netlink_tcpdiag_socket create_netlink_socket_perms;
++allow container_runtime_t self:netlink_socket create_socket_perms;
++
++corenet_tcp_bind_generic_node(container_runtime_t)
++corenet_udp_bind_generic_node(container_runtime_t)
++corenet_raw_bind_generic_node(container_runtime_t)
++corenet_tcp_sendrecv_all_ports(container_runtime_t)
++corenet_udp_sendrecv_all_ports(container_runtime_t)
++corenet_udp_bind_all_ports(container_runtime_t)
++corenet_tcp_bind_all_ports(container_runtime_t)
++corenet_tcp_connect_all_ports(container_runtime_t)
++
++mls_file_read_to_clearance(container_runtime_t)
++mls_file_write_to_clearance(container_runtime_t)
++
++container_auth_stream_connect(container_runtime_t)
++
++manage_blk_files_pattern(container_runtime_t, container_file_t, container_file_t)
++manage_sock_files_pattern(container_runtime_t, container_file_t, container_file_t)
++allow container_runtime_t container_file_t:dir {relabelfrom relabelto execmod};
++allow container_runtime_t container_file_t:chr_file mmap_file_perms;
++
++manage_files_pattern(container_runtime_t, container_home_t, container_home_t)
++manage_dirs_pattern(container_runtime_t, container_home_t, container_home_t)
++manage_lnk_files_pattern(container_runtime_t, container_home_t, container_home_t)
++userdom_admin_home_dir_filetrans(container_runtime_t, container_home_t, dir, ".container")
++userdom_manage_user_home_content(container_runtime_t)
++
++manage_dirs_pattern(container_runtime_t, container_config_t, container_config_t)
++manage_files_pattern(container_runtime_t, container_config_t, container_config_t)
++files_etc_filetrans(container_runtime_t, container_config_t, dir, "container")
++
++manage_dirs_pattern(container_runtime_t, container_lock_t, container_lock_t)
++manage_files_pattern(container_runtime_t, container_lock_t, container_lock_t)
++files_lock_filetrans(container_runtime_t, container_lock_t, { dir file }, "lxc")
++
++manage_dirs_pattern(container_runtime_t, container_log_t, container_log_t)
++manage_files_pattern(container_runtime_t, container_log_t, container_log_t)
++manage_lnk_files_pattern(container_runtime_t, container_log_t, container_log_t)
++logging_log_filetrans(container_runtime_t, container_log_t, { dir file lnk_file })
++allow container_runtime_t container_log_t:dir_file_class_set { relabelfrom relabelto };
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_log_t, file, "container-json.log")
++allow container_runtime_t { container_var_lib_t container_share_t }:file entrypoint;
++
++manage_dirs_pattern(container_runtime_t, container_runtime_tmp_t, container_runtime_tmp_t)
++manage_files_pattern(container_runtime_t, container_runtime_tmp_t, container_runtime_tmp_t)
++manage_sock_files_pattern(container_runtime_t, container_runtime_tmp_t, container_runtime_tmp_t)
++manage_lnk_files_pattern(container_runtime_t, container_runtime_tmp_t, container_runtime_tmp_t)
++files_tmp_filetrans(container_runtime_t, container_runtime_tmp_t, { dir file lnk_file })
++
++manage_dirs_pattern(container_runtime_t, container_runtime_tmpfs_t, container_runtime_tmpfs_t)
++manage_files_pattern(container_runtime_t, container_runtime_tmpfs_t, container_runtime_tmpfs_t)
++manage_lnk_files_pattern(container_runtime_t, container_runtime_tmpfs_t, container_runtime_tmpfs_t)
++manage_fifo_files_pattern(container_runtime_t, container_runtime_tmpfs_t, container_runtime_tmpfs_t)
++manage_chr_files_pattern(container_runtime_t, container_runtime_tmpfs_t, container_runtime_tmpfs_t)
++manage_blk_files_pattern(container_runtime_t, container_runtime_tmpfs_t, container_runtime_tmpfs_t)
++allow container_runtime_t container_runtime_tmpfs_t:dir relabelfrom;
++can_exec(container_runtime_t, container_runtime_tmpfs_t)
++fs_tmpfs_filetrans(container_runtime_t, container_runtime_tmpfs_t, { dir file })
++allow container_runtime_t container_runtime_tmpfs_t:chr_file mounton;
++
++manage_dirs_pattern(container_runtime_t, container_share_t, container_share_t)
++manage_chr_files_pattern(container_runtime_t, container_share_t, container_share_t)
++manage_blk_files_pattern(container_runtime_t, container_share_t, container_share_t)
++manage_files_pattern(container_runtime_t, container_share_t, container_share_t)
++manage_lnk_files_pattern(container_runtime_t, container_share_t, container_share_t)
++allow container_runtime_t container_share_t:dir_file_class_set { relabelfrom relabelto };
++can_exec(container_runtime_t, container_share_t)
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_share_t, dir, "init")
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_share_t, dir, "overlay")
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_share_t, dir, "overlay2")
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_share_t, file, "config.env")
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_share_t, file, "hostname")
++filetrans_pattern(container_runtime_t, container_var_lib_t, container_share_t, file, "hosts")
++
++#container_filetrans_named_content(container_runtime_t)
++
++manage_dirs_pattern(container_runtime_t, container_var_lib_t, container_var_lib_t)
++manage_files_pattern(container_runtime_t, container_var_lib_t, container_var_lib_t)
++manage_chr_files_pattern(container_runtime_t, container_var_lib_t, container_var_lib_t)
++manage_blk_files_pattern(container_runtime_t, container_var_lib_t, container_var_lib_t)
++manage_sock_files_pattern(container_runtime_t, container_var_lib_t, container_var_lib_t)
++manage_lnk_files_pattern(container_runtime_t, container_var_lib_t, container_var_lib_t)
++allow container_runtime_t container_var_lib_t:dir_file_class_set { relabelfrom relabelto };
++files_var_lib_filetrans(container_runtime_t, container_var_lib_t, { dir file lnk_file })
++
++manage_dirs_pattern(container_runtime_t, container_var_run_t, container_var_run_t)
++manage_files_pattern(container_runtime_t, container_var_run_t, container_var_run_t)
++manage_fifo_files_pattern(container_runtime_t, container_var_run_t, container_var_run_t)
++manage_sock_files_pattern(container_runtime_t, container_var_run_t, container_var_run_t)
++manage_lnk_files_pattern(container_runtime_t, container_var_run_t, container_var_run_t)
++files_pid_filetrans(container_runtime_t, container_var_run_t, { dir file lnk_file sock_file })
++
++allow container_runtime_t container_devpts_t:chr_file { relabelfrom rw_chr_file_perms setattr_chr_file_perms };
++term_create_pty(container_runtime_t, container_devpts_t)
++term_use_all_ttys(container_runtime_t)
++term_use_all_inherited_terms(container_runtime_t)
++
++kernel_read_system_state(container_runtime_t)
++kernel_read_network_state(container_runtime_t)
++kernel_read_all_sysctls(container_runtime_t)
++kernel_rw_net_sysctls(container_runtime_t)
++kernel_setsched(container_runtime_t)
++kernel_read_all_proc(container_runtime_t)
++kernel_rw_all_sysctls(container_runtime_t)
++
++domain_use_interactive_fds(container_runtime_t)
++domain_dontaudit_read_all_domains_state(container_runtime_t)
++domain_sigchld_all_domains(container_runtime_t)
++domain_use_interactive_fds(container_runtime_t)
++domain_read_all_domains_state(container_runtime_t)
++domain_getattr_all_domains(container_runtime_t)
++
++gen_require(`
++	attribute domain;
++')
++
++allow container_runtime_t domain:fifo_file rw_fifo_file_perms;
++allow container_runtime_t domain:fd use;
++
++corecmd_exec_bin(container_runtime_t)
++corecmd_exec_shell(container_runtime_t)
++corecmd_exec_all_executables(container_runtime_t)
++corecmd_bin_entry_type(container_runtime_t)
++corecmd_shell_entry_type(container_runtime_t)
++
++corenet_tcp_bind_generic_node(container_runtime_t)
++corenet_tcp_sendrecv_generic_if(container_runtime_t)
++corenet_tcp_sendrecv_generic_node(container_runtime_t)
++corenet_tcp_sendrecv_generic_port(container_runtime_t)
++corenet_tcp_bind_all_ports(container_runtime_t)
++corenet_tcp_connect_http_port(container_runtime_t)
++corenet_tcp_connect_commplex_main_port(container_runtime_t)
++corenet_udp_sendrecv_generic_if(container_runtime_t)
++corenet_udp_sendrecv_generic_node(container_runtime_t)
++corenet_udp_sendrecv_all_ports(container_runtime_t)
++corenet_udp_bind_generic_node(container_runtime_t)
++corenet_udp_bind_all_ports(container_runtime_t)
++
++files_read_kernel_modules(container_runtime_t)
++files_read_config_files(container_runtime_t)
++files_dontaudit_getattr_all_dirs(container_runtime_t)
++files_dontaudit_getattr_all_files(container_runtime_t)
++files_execmod_all_files(container_runtime_t)
++files_search_all(container_runtime_t)
++files_read_usr_symlinks(container_runtime_t)
++files_search_locks(container_runtime_t)
++files_dontaudit_unmount_all_mountpoints(container_runtime_t)
++
++fs_read_cgroup_files(container_runtime_t)
++fs_read_tmpfs_symlinks(container_runtime_t)
++fs_search_all(container_runtime_t)
++fs_getattr_all_fs(container_runtime_t)
++fs_rw_onload_sockets(container_runtime_t)
++
++storage_raw_rw_fixed_disk(container_runtime_t)
++
++auth_use_nsswitch(container_runtime_t)
++auth_dontaudit_getattr_shadow(container_runtime_t)
++
++init_read_state(container_runtime_t)
++init_status(container_runtime_t)
++#init_stop(container_runtime_t)
++#init_start(container_runtime_t)
++#init_manage_config_transient_files(container_runtime_t)
++gen_require(`
++	type init_t;
++')
++allow container_runtime_t init_t:service manage_service_perms;
++
++
++logging_send_audit_msgs(container_runtime_t)
++logging_send_syslog_msg(container_runtime_t)
++
++miscfiles_read_localization(container_runtime_t)
++miscfiles_dontaudit_access_check_cert(container_runtime_t)
++miscfiles_dontaudit_setattr_fonts_cache_dirs(container_runtime_t)
++miscfiles_read_fonts(container_runtime_t)
++miscfiles_read_hwdata(container_runtime_t)
++fs_relabel_cgroup_dirs(container_runtime_t)
++# fs_relabel_cgroup_files(container_runtime_t)
++allow container_runtime_t cgroup_t:file relabelfrom;
++
++mount_domtrans(container_runtime_t)
++
++seutil_read_default_contexts(container_runtime_t)
++seutil_read_config(container_runtime_t)
++
++sysnet_dns_name_resolve(container_runtime_t)
++sysnet_exec_ifconfig(container_runtime_t)
++
++optional_policy(`
++	ssh_use_ptys(container_runtime_t)
++')
++
++optional_policy(`
++	rpm_exec(container_runtime_t)
++	rpm_read_db(container_runtime_t)
++	rpm_exec(container_runtime_t)
++')
++
++optional_policy(`
++	fstools_domtrans(container_runtime_t)
++')
++
++optional_policy(`
++	iptables_domtrans(container_runtime_t)
++')
++
++optional_policy(`
++	openvswitch_stream_connect(container_runtime_t)
++')
++
++#
++# lxc rules
++#
++
++allow container_runtime_t self:capability ~{ sys_module };
++allow container_runtime_t self:capability2 ~{ mac_override mac_admin };
++allow container_runtime_t self:cap_userns ~{ sys_module };
++allow container_runtime_t self:cap2_userns ~{ mac_override mac_admin };
++
++allow container_runtime_t self:process { getcap setcap setexec setpgid setsched signal_perms };
++
++allow container_runtime_t self:netlink_route_socket rw_netlink_socket_perms;;
++allow container_runtime_t self:netlink_xfrm_socket create_netlink_socket_perms;
++allow container_runtime_t self:netlink_audit_socket create_netlink_socket_perms;
++allow container_runtime_t self:unix_dgram_socket { create_socket_perms sendto };
++allow container_runtime_t self:unix_stream_socket { create_stream_socket_perms connectto };
++
++allow container_runtime_t container_var_lib_t:dir mounton;
++allow container_runtime_t container_var_lib_t:chr_file mounton;
++can_exec(container_runtime_t, container_var_lib_t)
++
++kernel_dontaudit_setsched(container_runtime_t)
++kernel_get_sysvipc_info(container_runtime_t)
++kernel_request_load_module(container_runtime_t)
++kernel_mounton_messages(container_runtime_t)
++kernel_mounton_all_proc(container_runtime_t)
++kernel_mounton_all_sysctls(container_runtime_t)
++kernel_list_all_proc(container_runtime_t)
++kernel_read_all_sysctls(container_runtime_t)
++kernel_rw_net_sysctls(container_runtime_t)
++kernel_rw_unix_sysctls(container_runtime_t)
++kernel_dontaudit_search_kernel_sysctl(container_runtime_t)
++kernel_dontaudit_access_check_proc(container_runtime_t)
++kernel_dontaudit_setattr_proc_files(container_runtime_t)
++kernel_dontaudit_setattr_proc_dirs(container_runtime_t)
++#kernel_dontaudit_write_usermodehelper_state(container_runtime_t)
++gen_require(`
++	type usermodehelper_t;
++')
++dontaudit container_runtime_t usermodehelper_t:file write;
++
++dev_getattr_all(container_runtime_t)
++dev_getattr_sysfs_fs(container_runtime_t)
++dev_read_rand(container_runtime_t)
++dev_read_urand(container_runtime_t)
++dev_read_lvm_control(container_runtime_t)
++dev_rw_sysfs(container_runtime_t)
++dev_rw_loop_control(container_runtime_t)
++dev_rw_lvm_control(container_runtime_t)
++dev_read_mtrr(container_runtime_t)
++
++files_getattr_isid_type_dirs(container_runtime_t)
++files_manage_isid_type_dirs(container_runtime_t)
++files_manage_isid_type_files(container_runtime_t)
++files_manage_isid_type_symlinks(container_runtime_t)
++files_manage_isid_type_chr_files(container_runtime_t)
++files_manage_isid_type_blk_files(container_runtime_t)
++files_exec_isid_files(container_runtime_t)
++files_mounton_isid(container_runtime_t)
++files_mounton_non_security(container_runtime_t)
++files_mounton_isid_type_chr_file(container_runtime_t)
++
++fs_mount_all_fs(container_runtime_t)
++fs_unmount_all_fs(container_runtime_t)
++fs_remount_all_fs(container_runtime_t)
++files_mounton_isid(container_runtime_t)
++fs_manage_cgroup_dirs(container_runtime_t)
++fs_manage_cgroup_files(container_runtime_t)
++#fs_rw_nsfs_files(container_runtime_t)
++gen_require(`
++	type nsfs_t;
++')
++rw_files_pattern(container_runtime_t, nsfs_t, nsfs_t)
++
++fs_relabelfrom_xattr_fs(container_runtime_t)
++fs_relabelfrom_tmpfs(container_runtime_t)
++fs_read_tmpfs_symlinks(container_runtime_t)
++fs_list_hugetlbfs(container_runtime_t)
++fs_getattr_all_fs(container_runtime_t)
++fs_list_inotifyfs(container_runtime_t)
++fs_rw_inherited_tmpfs_files(container_runtime_t)
++fs_read_hugetlbfs_files(container_runtime_t)
++fs_read_tmpfs_symlinks(container_runtime_t)
++fs_search_tmpfs(container_runtime_t)
++fs_rw_hugetlbfs_files(container_runtime_t)
++
++
++term_use_generic_ptys(container_runtime_t)
++term_use_ptmx(container_runtime_t)
++term_getattr_pty_fs(container_runtime_t)
++term_relabel_pty_fs(container_runtime_t)
++term_mounton_unallocated_ttys(container_runtime_t)
++
++modutils_domtrans_insmod(container_runtime_t)
++
++systemd_status_all_unit_files(container_runtime_t)
++systemd_start_systemd_services(container_runtime_t)
++systemd_dbus_chat_logind(container_runtime_t)
++
++userdom_stream_connect(container_runtime_t)
++userdom_search_user_home_content(container_runtime_t)
++userdom_read_all_users_state(container_runtime_t)
++userdom_relabel_user_home_files(container_runtime_t)
++userdom_relabel_user_tmp_files(container_runtime_t)
++userdom_relabel_user_tmp_dirs(container_runtime_t)
++userdom_use_inherited_user_terminals(container_runtime_t)
++userdom_use_user_ptys(container_runtime_t)
++
++tunable_policy(`virt_use_nfs',`
++	fs_manage_nfs_dirs(container_runtime_t)
++	fs_manage_nfs_files(container_runtime_t)
++	fs_manage_nfs_named_sockets(container_runtime_t)
++	fs_manage_nfs_symlinks(container_runtime_t)
++	fs_mount_nfs(container_runtime_t)
++	fs_unmount_nfs(container_runtime_t)
++	fs_exec_nfs_files(container_runtime_t)
++	kernel_rw_fs_sysctls(container_runtime_t)
++')
++
++tunable_policy(`virt_use_samba',`
++	fs_manage_cifs_files(container_runtime_t)
++	fs_manage_cifs_dirs(container_runtime_t)
++	fs_manage_cifs_named_sockets(container_runtime_t)
++	fs_manage_cifs_symlinks(container_runtime_t)
++	fs_exec_cifs_files(container_runtime_t)
++')
++
++tunable_policy(`virt_sandbox_use_fusefs',`
++    fs_manage_fusefs_dirs(container_runtime_t)
++    fs_manage_fusefs_files(container_runtime_t)
++    fs_manage_fusefs_symlinks(container_runtime_t)
++    fs_mount_fusefs(container_runtime_t)
++    fs_unmount_fusefs(container_runtime_t)
++    fs_exec_fusefs_files(container_runtime_t)
++')
++
++optional_policy(`
++    virt_stub_svirt_sandbox_domain()
++    container_read_share_files(svirt_sandbox_domain)
++    container_exec_share_files(svirt_sandbox_domain)
++    allow svirt_sandbox_domain container_share_t:file execmod;
++    container_lib_filetrans(svirt_sandbox_domain,container_file_t, sock_file)
++    container_use_ptys(svirt_sandbox_domain)
++    container_spc_stream_connect(svirt_sandbox_domain)
++    fs_dontaudit_remount_tmpfs(svirt_sandbox_domain)
++    dev_dontaudit_mounton_sysfs(svirt_sandbox_domain)
++    allow svirt_sandbox_domain container_file_t:dir_file_class_set { relabelfrom relabelto };
++')
++
++optional_policy(`
++	apache_exec_modules(container_runtime_t)
++	apache_read_sys_content(container_runtime_t)
++')
++
++optional_policy(`
++	gpm_getattr_gpmctl(container_runtime_t)
++')
++
++optional_policy(`
++	dbus_system_bus_client(container_runtime_t)
++	init_dbus_chat(container_runtime_t)
++	init_start_transient_unit(container_runtime_t)
++
++	optional_policy(`
++		systemd_dbus_chat_logind(container_runtime_t)
++		systemd_dbus_chat_machined(container_runtime_t)
++	')
++
++	optional_policy(`
++		dnsmasq_dbus_chat(container_runtime_t)
++	')
++
++	optional_policy(`
++		firewalld_dbus_chat(container_runtime_t)
++	')
++')
++
++optional_policy(`
++	lvm_domtrans(container_runtime_t)
++')
++
++optional_policy(`
++	udev_read_db(container_runtime_t)
++')
++
++optional_policy(`
++	unconfined_domain(container_runtime_t)
++')
++
++optional_policy(`
++	virt_read_config(container_runtime_t)
++	virt_exec(container_runtime_t)
++	virt_stream_connect(container_runtime_t)
++	virt_stream_connect_sandbox(container_runtime_t)
++	virt_exec_sandbox_files(container_runtime_t)
++	virt_manage_sandbox_files(container_runtime_t)
++	virt_relabel_sandbox_filesystem(container_runtime_t)
++	# for lxc
++	virt_transition_svirt_sandbox(container_runtime_t, system_r)
++	virt_transition_svirt(container_runtime_t, system_r)
++	allow svirt_sandbox_domain container_runtime_t:fd use;
++	virt_mounton_sandbox_file(container_runtime_t)
++#	virt_attach_sandbox_tun_iface(container_runtime_t)
++	allow container_runtime_t svirt_sandbox_domain:tun_socket relabelfrom;
++	virt_sandbox_entrypoint(container_runtime_t)
++	virt_stub_lxc()
++	allow container_runtime_t virtd_lxc_t:unix_stream_socket { rw_stream_socket_perms connectto };
++
++')
++
++tunable_policy(`container_connect_any',`
++    corenet_tcp_connect_all_ports(container_runtime_t)
++    corenet_sendrecv_all_packets(container_runtime_t)
++    corenet_tcp_sendrecv_all_ports(container_runtime_t)
++')
++
++########################################
++#
++# spc local policy
++#
++allow spc_t { container_var_lib_t container_share_t }:file entrypoint;
++role system_r types spc_t;
++
++domtrans_pattern(container_runtime_t, container_share_t, spc_t)
++domtrans_pattern(container_runtime_t, container_var_lib_t, spc_t)
++allow container_runtime_t spc_t:process2 nnp_transition;
++allow spc_t container_runtime_t:fifo_file manage_fifo_file_perms;
++allow spc_t { container_share_t container_file_t }:system module_load;
++
++allow container_runtime_t spc_t:process { setsched signal_perms };
++ps_process_pattern(container_runtime_t, spc_t)
++allow container_runtime_t spc_t:socket_class_set { relabelto relabelfrom };
++
++init_dbus_chat(spc_t)
++
++optional_policy(`
++	systemd_dbus_chat_machined(spc_t)
++	systemd_dbus_chat_logind(spc_t)
++')
++
++optional_policy(`
++	dbus_chat_system_bus(spc_t)
++	dbus_chat_session_bus(spc_t)
++	dnsmasq_dbus_chat(spc_t)
++')
++
++optional_policy(`
++	unconfined_domain_noaudit(spc_t)
++	domain_ptrace_all_domains(spc_t)
++')
++
++optional_policy(`
++	virt_stub_svirt_sandbox_file()
++	virt_transition_svirt_sandbox(spc_t, system_r)
++	virt_sandbox_entrypoint(spc_t)
++#	virt_sandbox_domtrans(container_runtime_t, spc_t)
++	domtrans_pattern(container_runtime_t, container_file_t, spc_t)
++	virt_transition_svirt(spc_t, system_r)
++	virt_sandbox_entrypoint(container_file_t)
++	virt_sandbox_entrypoint(container_share_t)
++
++	gen_require(`
++		attribute virt_domain;
++	')
++	container_spc_read_state(virt_domain)
++	container_spc_rw_pipes(virt_domain)
++')
++
++########################################
++#
++# container_auth local policy
++#
++allow container_auth_t self:fifo_file rw_fifo_file_perms;
++allow container_auth_t self:unix_stream_socket create_stream_socket_perms;
++dontaudit container_auth_t self:capability net_admin;
++
++container_stream_connect(container_auth_t)
++
++manage_dirs_pattern(container_auth_t, container_plugin_var_run_t, container_plugin_var_run_t)
++manage_files_pattern(container_auth_t, container_plugin_var_run_t, container_plugin_var_run_t)
++manage_sock_files_pattern(container_auth_t, container_plugin_var_run_t, container_plugin_var_run_t)
++manage_lnk_files_pattern(container_auth_t, container_plugin_var_run_t, container_plugin_var_run_t)
++files_pid_filetrans(container_auth_t, container_plugin_var_run_t, { dir file lnk_file sock_file })
++
++stream_connect_pattern(container_runtime_t, container_plugin_var_run_t, container_plugin_var_run_t, container_auth_t)
++list_dirs_pattern(container_runtime_t, container_plugin_var_run_t, container_plugin_var_run_t)
++
++domain_use_interactive_fds(container_auth_t)
++
++kernel_read_net_sysctls(container_auth_t)
++
++auth_use_nsswitch(container_auth_t)
++
++files_read_etc_files(container_auth_t)
++
++miscfiles_read_localization(container_auth_t)
++
++sysnet_dns_name_resolve(container_auth_t)
++
++########################################
++#
++# container_t local policy
++#
++# Currently this is called in virt.te
++# virt_sandbox_domain_template(container)
++# typealias container_t alias svirt_lxc_net_t;
++gen_require(`
++	type container_t;
++')
++typeattribute container_t container_domain, container_net_domain;
++allow container_runtime_t container_domain:fifo_file rw_fifo_file_perms;
++allow container_domain container_runtime_t:fifo_file { rw_fifo_file_perms };
++allow container_domain container_runtime_t:fd use;
++allow container_runtime_t container_domain:fd use;
++allow container_domain self:socket_class_set create_socket_perms;
++
++dontaudit container_domain self:capability fsetid;
++allow container_domain self:association sendto;
++allow container_domain self:dir list_dir_perms;
++dontaudit container_domain self:dir write;
++allow container_domain self:file rw_file_perms;
++allow container_domain self:lnk_file read_file_perms;
++allow container_domain self:fifo_file create_fifo_file_perms;
++allow container_domain self:filesystem associate;
++allow container_domain self:key manage_key_perms;
++allow container_domain self:netlink_route_socket r_netlink_socket_perms;
++allow container_domain self:netlink_kobject_uevent_socket create_socket_perms;
++allow container_domain self:netlink_xfrm_socket create_socket_perms;
++allow container_domain self:packet_socket create_socket_perms;
++allow container_domain self:passwd rootok;
++allow container_domain self:peer recv;
++allow container_domain self:process { execmem execstack fork getattr getcap getpgid getsched getsession setcap setpgid setrlimit setsched sigchld sigkill signal signull sigstop };
++allow container_domain self:sem create_sem_perms;
++allow container_domain self:shm create_shm_perms;
++allow container_domain self:socket create_socket_perms;
++allow container_domain self:tcp_socket create_socket_perms;
++allow container_domain self:tun_socket create_socket_perms;
++allow container_domain self:udp_socket create_socket_perms;
++allow container_domain self:unix_dgram_socket create_socket_perms;
++allow container_domain self:unix_stream_socket create_stream_socket_perms;
++dontaudit container_domain self:capability2  block_suspend ;
++allow container_domain self:unix_stream_socket { sendto create_stream_socket_perms };
++
++manage_files_pattern(container_domain, container_file_t, container_file_t)
++exec_files_pattern(container_domain, container_file_t, container_file_t)
++manage_lnk_files_pattern(container_domain, container_file_t, container_file_t)
++manage_dirs_pattern(container_domain, container_file_t, container_file_t)
++manage_chr_files_pattern(container_domain, container_file_t, container_file_t)
++allow container_domain container_file_t:chr_file mmap_file_perms;
++manage_blk_files_pattern(container_domain, container_file_t, container_file_t)
++allow container_domain container_file_t:filesystem { mount remount unmount };
++fs_tmpfs_filetrans(container_domain, container_file_t, { dir file })
++allow container_domain container_file_t:dir_file_class_set { relabelfrom relabelto };
++container_read_share_files(container_domain)
++container_exec_share_files(container_domain)
++container_use_ptys(container_domain)
++container_spc_stream_connect(container_domain)
++container_stream_connect(container_domain)
++fs_dontaudit_remount_tmpfs(container_domain)
++
++dev_dontaudit_mounton_sysfs(container_domain)
++allow container_domain container_file_t:dir_file_class_set { relabelfrom relabelto };
++dev_dontaudit_mounton_sysfs(container_domain)
++
++dontaudit container_domain container_runtime_tmpfs_t:dir read;
++dev_getattr_mtrr_dev(container_domain)
++dev_list_sysfs(container_domain)
++
++allow svirt_sandbox_domain self:key manage_key_perms;
++dontaudit svirt_sandbox_domain svirt_sandbox_domain:key search;
++
++allow container_domain self:process { getattr signal_perms getsched getpgid getcap setsched setcap setpgid setrlimit };
++allow container_domain self:fifo_file manage_file_perms;
++allow container_domain self:msg all_msg_perms;
++allow container_domain self:sem create_sem_perms;
++allow container_domain self:shm create_shm_perms;
++allow container_domain self:msgq create_msgq_perms;
++allow container_domain self:unix_stream_socket { create_stream_socket_perms connectto };
++allow container_domain self:unix_dgram_socket { sendto create_socket_perms };
++allow container_domain self:passwd rootok;
++allow container_domain self:filesystem associate;
++allow container_domain self:netlink_kobject_uevent_socket create_socket_perms;
++
++kernel_getattr_proc(container_domain)
++kernel_list_all_proc(container_domain)
++kernel_read_all_sysctls(container_domain)
++kernel_read_network_state(container_domain)
++kernel_rw_net_sysctls(container_domain)
++kernel_rw_unix_sysctls(container_domain)
++kernel_dontaudit_search_kernel_sysctl(container_domain)
++kernel_dontaudit_access_check_proc(container_domain)
++kernel_dontaudit_setattr_proc_files(container_domain)
++kernel_dontaudit_setattr_proc_dirs(container_domain)
++#kernel_dontaudit_write_usermodehelper_state(container_domain)
++dontaudit container_domain usermodehelper_t:file write;
++
++kernel_read_irq_sysctls(container_domain)
++kernel_get_sysvipc_info(container_domain)
++
++fs_getattr_all_fs(container_domain)
++fs_list_inotifyfs(container_domain)
++fs_rw_inherited_tmpfs_files(container_domain)
++fs_read_hugetlbfs_files(container_domain)
++fs_read_tmpfs_symlinks(container_domain)
++fs_search_tmpfs(container_domain)
++fs_rw_hugetlbfs_files(container_domain)
++fs_dontaudit_getattr_all_dirs(container_domain)
++fs_dontaudit_getattr_all_files(container_domain)
++
++term_use_all_inherited_terms(container_domain)
++
++userdom_use_user_ptys(container_domain)
++
++#domain_dontaudit_link_all_domains_keyrings(container_domain)
++#domain_dontaudit_search_all_domains_keyrings(container_domain)
++
++virt_stub_svirt_sandbox_file()
++#virt_sandbox_net_domain(container_t)
++gen_require(`
++	attribute sandbox_net_domain;
++')
++virt_sandbox_domain(container_t)
++typeattribute  container_t sandbox_net_domain;
++
++logging_send_syslog_msg(container_t)
++
++fs_noxattr_type(container_file_t)
++# fs_associate_cgroupfs(container_file_t)
++gen_require(`
++	type cgroup_t;
++')
++
++dev_read_sysfs(container_domain)
++dev_read_mtrr(container_domain)
++dev_read_rand(container_t)
++dev_read_urand(container_t)
++
++files_read_kernel_modules(container_t)
++
++allow container_file_t cgroup_t:filesystem associate;
++term_pty(container_file_t)
++tunable_policy(`virt_sandbox_use_sys_admin',`
++	allow container_t self:capability sys_admin;
++	allow container_t self:cap_userns sys_admin;
++')
++
++allow container_domain self:cap_userns sys_admin;
++allow container_domain self:process { getsession execstack execmem };
++
++virt_default_capabilities(container_t)
++kernel_rw_rpc_sysctls(container_domain)
++kernel_rw_net_sysctls(container_domain)
++kernel_read_messages(container_t)
++kernel_read_network_state(container_domain)
++kernel_dontaudit_write_proc_files(container_domain)
++
++# Container Net Domain
++corenet_tcp_bind_generic_node(container_net_domain)
++corenet_udp_bind_generic_node(container_net_domain)
++corenet_raw_bind_generic_node(container_net_domain)
++corenet_tcp_sendrecv_all_ports(container_net_domain)
++corenet_udp_sendrecv_all_ports(container_net_domain)
++corenet_udp_bind_all_ports(container_net_domain)
++corenet_tcp_bind_all_ports(container_net_domain)
++corenet_tcp_connect_all_ports(container_net_domain)
++
++allow container_net_domain self:udp_socket create_socket_perms;
++allow container_net_domain self:tcp_socket create_stream_socket_perms;
++allow container_net_domain self:tun_socket create_socket_perms;
++allow container_net_domain self:netlink_route_socket create_netlink_socket_perms;
++allow container_net_domain self:packet_socket create_socket_perms;
++allow container_net_domain self:socket create_socket_perms;
++allow container_net_domain self:rawip_socket create_stream_socket_perms;
++allow container_net_domain self:netlink_kobject_uevent_socket create_socket_perms;
++allow container_net_domain self:netlink_xfrm_socket create_netlink_socket_perms;
++
++kernel_unlabeled_domtrans(container_runtime_t, spc_t)
++kernel_unlabeled_entry_type(spc_t)
++#kernel_dontaudit_write_usermodehelper_state(container_t)
++gen_require(`
++	type usermodehelper_t;
++')
++dontaudit container_t usermodehelper_t:file write;
++
++fs_read_cgroup_files(container_t)
++fs_list_cgroup_dirs(container_t)
++
++sysnet_read_config(container_t)
++
++corenet_tcp_bind_generic_node(container_t)
++corenet_udp_bind_generic_node(container_t)
++corenet_raw_bind_generic_node(container_t)
++corenet_tcp_sendrecv_all_ports(container_t)
++corenet_udp_sendrecv_all_ports(container_t)
++corenet_udp_bind_all_ports(container_t)
++corenet_tcp_bind_all_ports(container_t)
++corenet_tcp_connect_all_ports(container_t)
++
++allow container_t self:udp_socket create_socket_perms;
++allow container_t self:tcp_socket create_stream_socket_perms;
++allow container_t self:tun_socket create_socket_perms;
++allow container_t self:netlink_route_socket create_netlink_socket_perms;
++allow container_t self:packet_socket create_socket_perms;
++allow container_t self:socket create_socket_perms;
++allow container_t self:rawip_socket create_stream_socket_perms;
++allow container_t self:netlink_kobject_uevent_socket create_socket_perms;
++allow container_t self:netlink_xfrm_socket create_netlink_socket_perms;
++allow container_t self:cap_userns { chown dac_override fowner kill setgid setuid setpcap net_bind_service net_raw sys_chroot mknod audit_write setfcap };
++
++optional_policy(`
++	sssd_stream_connect(container_t)
++')
++
++optional_policy(`
++	systemd_dbus_chat_logind(container_t)
++')
++
++tunable_policy(`container_manage_cgroup',`
++	fs_manage_cgroup_dirs(container_t)
++	fs_manage_cgroup_files(container_t)
++')
++
++tunable_policy(`virt_sandbox_use_fusefs',`
++    fs_manage_fusefs_dirs(container_t)
++    fs_manage_fusefs_files(container_t)
++    fs_manage_fusefs_symlinks(container_t)
++    fs_mount_fusefs(container_t)
++    fs_unmount_fusefs(container_t)
++    fs_exec_fusefs_files(container_t)
++')
++
++tunable_policy(`virt_sandbox_use_netlink',`
++	allow container_t self:netlink_socket create_socket_perms;
++	allow container_t self:netlink_tcpdiag_socket create_netlink_socket_perms;
++	allow container_t self:netlink_kobject_uevent_socket create_socket_perms;
++', `
++	logging_dontaudit_send_audit_msgs(container_t)
++')
++
++tunable_policy(`virt_sandbox_use_audit',`
++	logging_send_audit_msgs(container_t)
++')
++
++tunable_policy(`virt_sandbox_use_all_caps',`
++	allow container_t self:capability ~{ sys_module };
++	allow container_t self:capability2 ~{ mac_override mac_admin };
++	allow container_t self:cap_userns ~{ sys_module };
++	allow container_t self:cap2_userns ~{ mac_override mac_admin };
++')
++
++tunable_policy(`virt_sandbox_use_mknod',`
++	allow container_t self:capability mknod;
++	allow container_t self:cap_userns mknod;
++')
++
++gen_require(`
++	type iptables_t;
++')
++container_read_pid_files(iptables_t)
++container_read_state(iptables_t)
++
++optional_policy(`
++	gen_require(`
++		type unconfined_service_t;
++	')
++
++	virt_transition_svirt_sandbox(unconfined_service_t, system_r)
++	container_filetrans_named_content(unconfined_service_t)
++	container_runtime_domtrans(unconfined_service_t)
++')
++
++optional_policy(`
++	gen_require(`
++		attribute unconfined_domain_type;
++	')
++
++	container_filetrans_named_content(unconfined_domain_type)
++	allow unconfined_domain_type container_domain:process2 { nnp_transition nosuid_transition };
++')
++
++# Container build
++container_domain_template(container_build)
++dev_mount_sysfs_fs(container_build_t)
++dev_mounton_sysfs(container_build_t)
++
++fs_mount_tmpfs(container_build_t)
++fs_remount_cgroup(container_build_t)
++
++kernel_mount_proc(container_build_t)
++kernel_mount_proc(container_build_t)
++kernel_mounton_proc(container_build_t)
++kernel_mounton_proc(container_build_t)
++
++term_use_generic_ptys(container_build_t)
++term_setattr_generic_ptys(container_build_t)
++term_mount_pty_fs(container_build_t)
++  
++allow container_build_t self:capability ~{ sys_module };
++allow container_build_t self:capability2 ~{ mac_override mac_admin };
++allow container_build_t self:cap_userns ~{ sys_module };
++allow container_build_t self:cap2_userns ~{ mac_override mac_admin };
++allow container_build_t self:capability mknod;
++allow container_build_t self:cap_userns mknod;
++
++optional_policy(`
++	gen_require(`
++		type proc_t, proc_kcore_t;
++		type sysctl_t, sysctl_irq_t;
++	')
++
++	allow container_build_t proc_t:filesystem { remount };
++	allow container_build_t proc_kcore_t:file mounton;
++	allow container_build_t sysctl_irq_t:dir mounton;
++	allow container_build_t sysctl_t:dir mounton;
++	allow container_build_t sysctl_t:file mounton;
++')
++
++# Container Logreader
++container_domain_template(container_logreader)
++typeattribute container_logreader_t container_net_domain;
++logging_read_all_logs(container_logreader_t)
++logging_read_audit_log(container_logreader_t)
++logging_list_logs(container_logreader_t)
++
++tunable_policy(`virt_sandbox_use_all_caps',`
++	allow container_logreader_t self:capability ~{ sys_module };
++	allow container_logreader_t self:capability2 ~{ mac_override mac_admin };
++	allow container_logreader_t self:cap_userns ~{ sys_module };
++	allow container_logreader_t self:cap2_userns ~{ mac_override mac_admin };
++')
+diff --git a/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.fc b/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.fc
+deleted file mode 100644
+index e9bb863da0..0000000000
+--- a/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.fc
++++ /dev/null
+@@ -1,20 +0,0 @@
+-/root/\.docker	gen_context(system_u:object_r:docker_home_t,s0)
+-
+-/usr/bin/docker			--	gen_context(system_u:object_r:docker_exec_t,s0)
+-/usr/bin/dockerd		--	gen_context(system_u:object_r:docker_exec_t,s0)
+-/usr/lib/systemd/system/docker.service		--	gen_context(system_u:object_r:docker_unit_file_t,s0)
+-
+-/etc/docker(/.*)?		gen_context(system_u:object_r:docker_config_t,s0)
+-
+-/var/lib/docker(/.*)?		gen_context(system_u:object_r:docker_var_lib_t,s0)
+-/var/lib/kublet(/.*)?		gen_context(system_u:object_r:docker_var_lib_t,s0)
+-/var/lib/docker/vfs(/.*)?	gen_context(system_u:object_r:svirt_sandbox_file_t,s0)
+-
+-/var/run/docker\.pid		--	gen_context(system_u:object_r:docker_var_run_t,s0)
+-/var/run/docker\.sock		-s	gen_context(system_u:object_r:docker_var_run_t,s0)
+-/var/run/docker-client(/.*)?		gen_context(system_u:object_r:docker_var_run_t,s0)
+-
+-/var/lib/docker/init(/.*)?		gen_context(system_u:object_r:docker_share_t,s0)
+-/var/lib/docker/containers/.*/hosts		gen_context(system_u:object_r:docker_share_t,s0)
+-/var/lib/docker/containers/.*/hostname		gen_context(system_u:object_r:docker_share_t,s0)
+-/var/lib/docker/.*/config\.env	gen_context(system_u:object_r:docker_share_t,s0)
+diff --git a/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.if b/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.if
+deleted file mode 100644
+index ca075c05c5..0000000000
+--- a/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.if
++++ /dev/null
+@@ -1,461 +0,0 @@
+-
+-## <summary>The open-source application container engine.</summary>
+-
+-########################################
+-## <summary>
+-##	Execute docker in the docker domain.
+-## </summary>
+-## <param name="domain">
+-## <summary>
+-##	Domain allowed to transition.
+-## </summary>
+-## </param>
+-#
+-interface(`docker_domtrans',`
+-	gen_require(`
+-		type docker_t, docker_exec_t;
+-	')
+-
+-	corecmd_search_bin($1)
+-	domtrans_pattern($1, docker_exec_t, docker_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Execute docker in the caller domain.
+-## </summary>
+-## <param name="domain">
+-## <summary>
+-##	Domain allowed to transition.
+-## </summary>
+-## </param>
+-#
+-interface(`docker_exec',`
+-	gen_require(`
+-		type docker_exec_t;
+-	')
+-
+-	corecmd_search_bin($1)
+-	can_exec($1, docker_exec_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Search docker lib directories.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_search_lib',`
+-	gen_require(`
+-		type docker_var_lib_t;
+-	')
+-
+-	allow $1 docker_var_lib_t:dir search_dir_perms;
+-	files_search_var_lib($1)
+-')
+-
+-########################################
+-## <summary>
+-##	Execute docker lib directories.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_exec_lib',`
+-	gen_require(`
+-		type docker_var_lib_t;
+-	')
+-
+-	allow $1 docker_var_lib_t:dir search_dir_perms;
+-	can_exec($1, docker_var_lib_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Read docker lib files.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_read_lib_files',`
+-	gen_require(`
+-		type docker_var_lib_t;
+-	')
+-
+-	files_search_var_lib($1)
+-	read_files_pattern($1, docker_var_lib_t, docker_var_lib_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Read docker share files.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_read_share_files',`
+-	gen_require(`
+-		type docker_share_t;
+-	')
+-
+-	files_search_var_lib($1)
+-	read_files_pattern($1, docker_share_t, docker_share_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Manage docker lib files.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_manage_lib_files',`
+-	gen_require(`
+-		type docker_var_lib_t;
+-	')
+-
+-	files_search_var_lib($1)
+-	manage_files_pattern($1, docker_var_lib_t, docker_var_lib_t)
+-	manage_lnk_files_pattern($1, docker_var_lib_t, docker_var_lib_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Manage docker lib directories.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_manage_lib_dirs',`
+-	gen_require(`
+-		type docker_var_lib_t;
+-	')
+-
+-	files_search_var_lib($1)
+-	manage_dirs_pattern($1, docker_var_lib_t, docker_var_lib_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Create objects in a docker var lib directory
+-##	with an automatic type transition to
+-##	a specified private type.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-## <param name="private_type">
+-##	<summary>
+-##	The type of the object to create.
+-##	</summary>
+-## </param>
+-## <param name="object_class">
+-##	<summary>
+-##	The class of the object to be created.
+-##	</summary>
+-## </param>
+-## <param name="name" optional="true">
+-##	<summary>
+-##	The name of the object being created.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_lib_filetrans',`
+-	gen_require(`
+-		type docker_var_lib_t;
+-	')
+-
+-	filetrans_pattern($1, docker_var_lib_t, $2, $3, $4)
+-')
+-
+-########################################
+-## <summary>
+-##	Read docker PID files.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_read_pid_files',`
+-	gen_require(`
+-		type docker_var_run_t;
+-	')
+-
+-	files_search_pids($1)
+-	read_files_pattern($1, docker_var_run_t, docker_var_run_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Execute docker server in the docker domain.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed to transition.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_systemctl',`
+-	gen_require(`
+-		type docker_t;
+-		type docker_unit_file_t;
+-	')
+-
+-	systemd_exec_systemctl($1)
+-	init_reload_services($1)
+-        systemd_read_fifo_file_passwd_run($1)
+-	allow $1 docker_unit_file_t:file read_file_perms;
+-	allow $1 docker_unit_file_t:service manage_service_perms;
+-
+-	ps_process_pattern($1, docker_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Read and write docker shared memory.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_rw_sem',`
+-	gen_require(`
+-		type docker_t;
+-	')
+-
+-	allow $1 docker_t:sem rw_sem_perms;
+-')
+-
+-#######################################
+-## <summary>
+-##  Read and write the docker pty type.
+-## </summary>
+-## <param name="domain">
+-##  <summary>
+-##  Domain allowed access.
+-##  </summary>
+-## </param>
+-#
+-interface(`docker_use_ptys',`
+-    gen_require(`
+-        type docker_devpts_t;
+-    ')
+-
+-    allow $1 docker_devpts_t:chr_file rw_term_perms;
+-')
+-
+-#######################################
+-## <summary>
+-##      Allow domain to create docker content
+-## </summary>
+-## <param name="domain">
+-##      <summary>
+-##      Domain allowed access.
+-##      </summary>
+-## </param>
+-#
+-interface(`docker_filetrans_named_content',`
+-
+-    gen_require(`
+-        type docker_var_lib_t;
+-        type docker_share_t;
+-	type docker_log_t;
+-	    type docker_var_run_t;
+-        type docker_home_t;
+-    ')
+-
+-    files_pid_filetrans($1, docker_var_run_t, file, "docker.pid")
+-    files_pid_filetrans($1, docker_var_run_t, sock_file, "docker.sock")
+-    files_pid_filetrans($1, docker_var_run_t, dir, "docker-client")
+-    files_var_lib_filetrans($1, docker_var_lib_t, dir, "docker")
+-    filetrans_pattern($1, docker_var_lib_t, docker_share_t, file, "config.env")
+-    filetrans_pattern($1, docker_var_lib_t, docker_share_t, file, "hosts")
+-    filetrans_pattern($1, docker_var_lib_t, docker_share_t, file, "hostname")
+-    filetrans_pattern($1, docker_var_lib_t, docker_share_t, file, "resolv.conf")
+-    filetrans_pattern($1, docker_var_lib_t, docker_share_t, dir, "init")
+-    userdom_admin_home_dir_filetrans($1, docker_home_t, dir, ".docker")
+-')
+-
+-########################################
+-## <summary>
+-##	Connect to docker over a unix stream socket.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_stream_connect',`
+-	gen_require(`
+-		type docker_t, docker_var_run_t;
+-	')
+-
+-	files_search_pids($1)
+-	stream_connect_pattern($1, docker_var_run_t, docker_var_run_t, docker_t)
+-')
+-
+-########################################
+-## <summary>
+-##	Connect to SPC containers over a unix stream socket.
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_spc_stream_connect',`
+-	gen_require(`
+-		type spc_t, spc_var_run_t;
+-	')
+-
+-	files_search_pids($1)
+-	files_write_all_pid_sockets($1)
+-	allow $1 spc_t:unix_stream_socket connectto;
+-')
+-
+-
+-########################################
+-## <summary>
+-##	All of the rules required to administrate
+-##	an docker environment
+-## </summary>
+-## <param name="domain">
+-##	<summary>
+-##	Domain allowed access.
+-##	</summary>
+-## </param>
+-#
+-interface(`docker_admin',`
+-	gen_require(`
+-		type docker_t;
+-		type docker_var_lib_t, docker_var_run_t;
+-		type docker_unit_file_t;
+-		type docker_lock_t;
+-		type docker_log_t;
+-		type docker_config_t;
+-	')
+-
+-	allow $1 docker_t:process { ptrace signal_perms };
+-	ps_process_pattern($1, docker_t)
+-
+-	admin_pattern($1, docker_config_t)
+-
+-	files_search_var_lib($1)
+-	admin_pattern($1, docker_var_lib_t)
+-
+-	files_search_pids($1)
+-	admin_pattern($1, docker_var_run_t)
+-
+-	files_search_locks($1)
+-	admin_pattern($1, docker_lock_t)
+-
+-	logging_search_logs($1)
+-	admin_pattern($1, docker_log_t)
+-
+-	docker_systemctl($1)
+-	admin_pattern($1, docker_unit_file_t)
+-	allow $1 docker_unit_file_t:service all_service_perms;
+-
+-	optional_policy(`
+-		systemd_passwd_agent_exec($1)
+-		systemd_read_fifo_file_passwd_run($1)
+-	')
+-')
+-
+-interface(`domain_stub_named_filetrans_domain',`
+-    gen_require(`
+-        attribute named_filetrans_domain;
+-    ')
+-')
+-
+-interface(`lvm_stub',`
+-    gen_require(`
+-        type lvm_t;
+-    ')
+-')
+-interface(`staff_stub',`
+-    gen_require(`
+-        type staff_t;
+-    ')
+-')
+-interface(`virt_stub_svirt_sandbox_domain',`
+-	gen_require(`
+-		attribute svirt_sandbox_domain;
+-	')
+-')
+-interface(`virt_stub_svirt_sandbox_file',`
+-	gen_require(`
+-		type svirt_sandbox_file_t;
+-	')
+-')
+-interface(`fs_dontaudit_remount_tmpfs',`
+-	gen_require(`
+-		type tmpfs_t;
+-	')
+-
+-	dontaudit $1 tmpfs_t:filesystem remount;
+-')
+-interface(`dev_dontaudit_list_all_dev_nodes',`
+-	gen_require(`
+-		type device_t;
+-	')
+-
+-	dontaudit $1 device_t:dir list_dir_perms;
+-')
+-interface(`kernel_unlabeled_entry_type',`
+-	gen_require(`
+-		type unlabeled_t;
+-	')
+-
+-	domain_entry_file($1, unlabeled_t)
+-')
+-interface(`kernel_unlabeled_domtrans',`
+-	gen_require(`
+-		type unlabeled_t;
+-	')
+-
+-	read_lnk_files_pattern($1, unlabeled_t, unlabeled_t)
+-	domain_transition_pattern($1, unlabeled_t, $2)
+-	type_transition $1 unlabeled_t:process $2;
+-')
+-interface(`files_write_all_pid_sockets',`
+-	gen_require(`
+-		attribute pidfile;
+-	')
+-
+-	allow $1 pidfile:sock_file write_sock_file_perms;
+-')
+-interface(`dev_dontaudit_mounton_sysfs',`
+-	gen_require(`
+-		type sysfs_t;
+-	')
+-
+-	dontaudit $1 sysfs_t:dir mounton;
+-')
+diff --git a/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.te b/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.te
+deleted file mode 100644
+index 999742f302..0000000000
+--- a/components/engine/contrib/selinux-euleros/docker-engine-selinux/docker.te
++++ /dev/null
+@@ -1,414 +0,0 @@
+-policy_module(docker, 1.0.0)
+-
+-########################################
+-#
+-# Declarations
+-#
+-
+-## <desc>
+-## <p>
+-## Allow sandbox containers manage fuse files
+-## </p>
+-## </desc>
+-gen_tunable(virt_sandbox_use_fusefs, false)
+-
+-## <desc>
+-##  <p>
+-##  Determine whether docker can
+-##  connect to all TCP ports.
+-##  </p>
+-## </desc>
+-gen_tunable(docker_connect_any, false)
+-
+-type docker_t;
+-type docker_exec_t;
+-init_daemon_domain(docker_t, docker_exec_t)
+-domain_subj_id_change_exemption(docker_t)
+-domain_role_change_exemption(docker_t)
+-
+-type spc_t;
+-domain_type(spc_t)
+-role system_r types spc_t;
+-
+-type spc_var_run_t;
+-files_pid_file(spc_var_run_t)
+-
+-type docker_var_lib_t;
+-files_type(docker_var_lib_t)
+-
+-type docker_home_t;
+-userdom_user_home_content(docker_home_t)
+-
+-type docker_config_t;
+-files_config_file(docker_config_t)
+-
+-type docker_lock_t;
+-files_lock_file(docker_lock_t)
+-
+-type docker_log_t;
+-logging_log_file(docker_log_t)
+-
+-type docker_tmp_t;
+-files_tmp_file(docker_tmp_t)
+-
+-type docker_tmpfs_t;
+-files_tmpfs_file(docker_tmpfs_t)
+-
+-type docker_var_run_t;
+-files_pid_file(docker_var_run_t)
+-
+-type docker_unit_file_t;
+-systemd_unit_file(docker_unit_file_t)
+-
+-type docker_devpts_t;
+-term_pty(docker_devpts_t)
+-
+-type docker_share_t;
+-files_type(docker_share_t)
+-
+-########################################
+-#
+-# docker local policy
+-#
+-allow docker_t self:capability { chown kill fowner fsetid mknod net_admin net_bind_service net_raw setfcap };
+-allow docker_t self:tun_socket relabelto;
+-allow docker_t self:process { getattr signal_perms setrlimit setfscreate };
+-allow docker_t self:fifo_file rw_fifo_file_perms;
+-allow docker_t self:unix_stream_socket create_stream_socket_perms;
+-allow docker_t self:tcp_socket create_stream_socket_perms;
+-allow docker_t self:udp_socket create_socket_perms;
+-allow docker_t self:capability2 block_suspend;
+-
+-manage_files_pattern(docker_t, docker_home_t, docker_home_t)
+-manage_dirs_pattern(docker_t, docker_home_t, docker_home_t)
+-manage_lnk_files_pattern(docker_t, docker_home_t, docker_home_t)
+-userdom_admin_home_dir_filetrans(docker_t, docker_home_t, dir, ".docker")
+-
+-manage_dirs_pattern(docker_t, docker_config_t, docker_config_t)
+-manage_files_pattern(docker_t, docker_config_t, docker_config_t)
+-files_etc_filetrans(docker_t, docker_config_t, dir, "docker")
+-
+-manage_dirs_pattern(docker_t, docker_lock_t, docker_lock_t)
+-manage_files_pattern(docker_t, docker_lock_t, docker_lock_t)
+-
+-manage_dirs_pattern(docker_t, docker_log_t, docker_log_t)
+-manage_files_pattern(docker_t, docker_log_t, docker_log_t)
+-manage_lnk_files_pattern(docker_t, docker_log_t, docker_log_t)
+-logging_log_filetrans(docker_t, docker_log_t, { dir file lnk_file })
+-allow docker_t docker_log_t:dir_file_class_set { relabelfrom relabelto };
+-
+-manage_dirs_pattern(docker_t, docker_tmp_t, docker_tmp_t)
+-manage_files_pattern(docker_t, docker_tmp_t, docker_tmp_t)
+-manage_lnk_files_pattern(docker_t, docker_tmp_t, docker_tmp_t)
+-files_tmp_filetrans(docker_t, docker_tmp_t, { dir file lnk_file })
+-
+-manage_dirs_pattern(docker_t, docker_tmpfs_t, docker_tmpfs_t)
+-manage_files_pattern(docker_t, docker_tmpfs_t, docker_tmpfs_t)
+-manage_lnk_files_pattern(docker_t, docker_tmpfs_t, docker_tmpfs_t)
+-manage_fifo_files_pattern(docker_t, docker_tmpfs_t, docker_tmpfs_t)
+-manage_chr_files_pattern(docker_t, docker_tmpfs_t, docker_tmpfs_t)
+-manage_blk_files_pattern(docker_t, docker_tmpfs_t, docker_tmpfs_t)
+-allow docker_t docker_tmpfs_t:dir relabelfrom;
+-can_exec(docker_t, docker_tmpfs_t)
+-fs_tmpfs_filetrans(docker_t, docker_tmpfs_t, { dir file })
+-allow docker_t docker_tmpfs_t:chr_file mounton;
+-
+-manage_dirs_pattern(docker_t, docker_share_t, docker_share_t)
+-manage_files_pattern(docker_t, docker_share_t, docker_share_t)
+-manage_lnk_files_pattern(docker_t, docker_share_t, docker_share_t)
+-allow docker_t docker_share_t:dir_file_class_set { relabelfrom relabelto };
+-
+-can_exec(docker_t, docker_share_t)
+-#docker_filetrans_named_content(docker_t)
+-
+-manage_dirs_pattern(docker_t, docker_var_lib_t, docker_var_lib_t)
+-manage_chr_files_pattern(docker_t, docker_var_lib_t, docker_var_lib_t)
+-manage_blk_files_pattern(docker_t, docker_var_lib_t, docker_var_lib_t)
+-manage_files_pattern(docker_t, docker_var_lib_t, docker_var_lib_t)
+-manage_lnk_files_pattern(docker_t, docker_var_lib_t, docker_var_lib_t)
+-allow docker_t docker_var_lib_t:dir_file_class_set { relabelfrom relabelto };
+-files_var_lib_filetrans(docker_t, docker_var_lib_t, { dir file lnk_file })
+-
+-manage_dirs_pattern(docker_t, docker_var_run_t, docker_var_run_t)
+-manage_files_pattern(docker_t, docker_var_run_t, docker_var_run_t)
+-manage_sock_files_pattern(docker_t, docker_var_run_t, docker_var_run_t)
+-manage_lnk_files_pattern(docker_t, docker_var_run_t, docker_var_run_t)
+-files_pid_filetrans(docker_t, docker_var_run_t, { dir file lnk_file sock_file })
+-
+-allow docker_t docker_devpts_t:chr_file { relabelfrom rw_chr_file_perms setattr_chr_file_perms };
+-term_create_pty(docker_t, docker_devpts_t)
+-
+-kernel_read_system_state(docker_t)
+-kernel_read_network_state(docker_t)
+-kernel_read_all_sysctls(docker_t)
+-kernel_rw_net_sysctls(docker_t)
+-kernel_setsched(docker_t)
+-kernel_read_all_proc(docker_t)
+-
+-domain_use_interactive_fds(docker_t)
+-domain_dontaudit_read_all_domains_state(docker_t)
+-
+-corecmd_exec_bin(docker_t)
+-corecmd_exec_shell(docker_t)
+-
+-corenet_tcp_bind_generic_node(docker_t)
+-corenet_tcp_sendrecv_generic_if(docker_t)
+-corenet_tcp_sendrecv_generic_node(docker_t)
+-corenet_tcp_sendrecv_generic_port(docker_t)
+-corenet_tcp_bind_all_ports(docker_t)
+-corenet_tcp_connect_http_port(docker_t)
+-corenet_tcp_connect_commplex_main_port(docker_t)
+-corenet_udp_sendrecv_generic_if(docker_t)
+-corenet_udp_sendrecv_generic_node(docker_t)
+-corenet_udp_sendrecv_all_ports(docker_t)
+-corenet_udp_bind_generic_node(docker_t)
+-corenet_udp_bind_all_ports(docker_t)
+-
+-files_read_config_files(docker_t)
+-files_dontaudit_getattr_all_dirs(docker_t)
+-files_dontaudit_getattr_all_files(docker_t)
+-
+-fs_read_cgroup_files(docker_t)
+-fs_read_tmpfs_symlinks(docker_t)
+-fs_search_all(docker_t)
+-fs_getattr_all_fs(docker_t)
+-
+-storage_raw_rw_fixed_disk(docker_t)
+-
+-auth_use_nsswitch(docker_t)
+-auth_dontaudit_getattr_shadow(docker_t)
+-
+-init_read_state(docker_t)
+-init_status(docker_t)
+-
+-logging_send_audit_msgs(docker_t)
+-logging_send_syslog_msg(docker_t)
+-
+-miscfiles_read_localization(docker_t)
+-
+-mount_domtrans(docker_t)
+-
+-seutil_read_default_contexts(docker_t)
+-seutil_read_config(docker_t)
+-
+-sysnet_dns_name_resolve(docker_t)
+-sysnet_exec_ifconfig(docker_t)
+-
+-optional_policy(`
+-	rpm_exec(docker_t)
+-	rpm_read_db(docker_t)
+-	rpm_exec(docker_t)
+-')
+-
+-optional_policy(`
+-	fstools_domtrans(docker_t)
+-')
+-
+-optional_policy(`
+-	iptables_domtrans(docker_t)
+-')
+-
+-optional_policy(`
+-	openvswitch_stream_connect(docker_t)
+-')
+-
+-allow docker_t self:capability { dac_override setgid setpcap setuid sys_admin sys_boot sys_chroot sys_ptrace };
+-
+-allow docker_t self:process { getcap setcap setexec setpgid setsched signal_perms };
+-
+-allow docker_t self:netlink_route_socket rw_netlink_socket_perms;;
+-allow docker_t self:netlink_audit_socket create_netlink_socket_perms;
+-allow docker_t self:unix_dgram_socket { create_socket_perms sendto };
+-allow docker_t self:unix_stream_socket { create_stream_socket_perms connectto };
+-
+-allow docker_t docker_var_lib_t:dir mounton;
+-allow docker_t docker_var_lib_t:chr_file mounton;
+-can_exec(docker_t, docker_var_lib_t)
+-
+-kernel_dontaudit_setsched(docker_t)
+-kernel_get_sysvipc_info(docker_t)
+-kernel_request_load_module(docker_t)
+-kernel_mounton_messages(docker_t)
+-kernel_mounton_all_proc(docker_t)
+-kernel_mounton_all_sysctls(docker_t)
+-kernel_unlabeled_entry_type(spc_t)
+-kernel_unlabeled_domtrans(docker_t, spc_t)
+-
+-dev_getattr_all(docker_t)
+-dev_getattr_sysfs_fs(docker_t)
+-dev_read_urand(docker_t)
+-dev_read_lvm_control(docker_t)
+-dev_rw_sysfs(docker_t)
+-dev_rw_loop_control(docker_t)
+-dev_rw_lvm_control(docker_t)
+-
+-files_getattr_isid_type_dirs(docker_t)
+-files_manage_isid_type_dirs(docker_t)
+-files_manage_isid_type_files(docker_t)
+-files_manage_isid_type_symlinks(docker_t)
+-files_manage_isid_type_chr_files(docker_t)
+-files_manage_isid_type_blk_files(docker_t)
+-files_exec_isid_files(docker_t)
+-files_mounton_isid(docker_t)
+-files_mounton_non_security(docker_t)
+-files_mounton_isid_type_chr_file(docker_t)
+-
+-fs_mount_all_fs(docker_t)
+-fs_unmount_all_fs(docker_t)
+-fs_remount_all_fs(docker_t)
+-files_mounton_isid(docker_t)
+-fs_manage_cgroup_dirs(docker_t)
+-fs_manage_cgroup_files(docker_t)
+-fs_relabelfrom_xattr_fs(docker_t)
+-fs_relabelfrom_tmpfs(docker_t)
+-fs_read_tmpfs_symlinks(docker_t)
+-fs_list_hugetlbfs(docker_t)
+-
+-term_use_generic_ptys(docker_t)
+-term_use_ptmx(docker_t)
+-term_getattr_pty_fs(docker_t)
+-term_relabel_pty_fs(docker_t)
+-term_mounton_unallocated_ttys(docker_t)
+-
+-modutils_domtrans_insmod(docker_t)
+-
+-systemd_status_all_unit_files(docker_t)
+-systemd_start_systemd_services(docker_t)
+-
+-userdom_stream_connect(docker_t)
+-userdom_search_user_home_content(docker_t)
+-userdom_read_all_users_state(docker_t)
+-userdom_relabel_user_home_files(docker_t)
+-userdom_relabel_user_tmp_files(docker_t)
+-userdom_relabel_user_tmp_dirs(docker_t)
+-
+-optional_policy(`
+-	gpm_getattr_gpmctl(docker_t)
+-')
+-
+-optional_policy(`
+-	dbus_system_bus_client(docker_t)
+-	init_dbus_chat(docker_t)
+-	init_start_transient_unit(docker_t)
+-
+-	optional_policy(`
+-		systemd_dbus_chat_logind(docker_t)
+-	')
+-
+-	optional_policy(`
+-		firewalld_dbus_chat(docker_t)
+-	')
+-')
+-
+-optional_policy(`
+-	udev_read_db(docker_t)
+-')
+-
+-optional_policy(`
+-	virt_read_config(docker_t)
+-	virt_exec(docker_t)
+-	virt_stream_connect(docker_t)
+-	virt_stream_connect_sandbox(docker_t)
+-	virt_exec_sandbox_files(docker_t)
+-	virt_manage_sandbox_files(docker_t)
+-	virt_relabel_sandbox_filesystem(docker_t)
+-	virt_transition_svirt_sandbox(docker_t, system_r)
+-	virt_mounton_sandbox_file(docker_t)
+-#	virt_attach_sandbox_tun_iface(docker_t)
+-	allow docker_t svirt_sandbox_domain:tun_socket relabelfrom;
+-')
+-
+-tunable_policy(`docker_connect_any',`
+-    corenet_tcp_connect_all_ports(docker_t)
+-    corenet_sendrecv_all_packets(docker_t)
+-    corenet_tcp_sendrecv_all_ports(docker_t)
+-')
+-
+-########################################
+-#
+-# spc local policy
+-#
+-domain_entry_file(spc_t, docker_share_t)
+-domain_entry_file(spc_t, docker_var_lib_t)
+-role system_r types spc_t;
+-
+-domain_entry_file(spc_t, docker_share_t)
+-domain_entry_file(spc_t, docker_var_lib_t)
+-domtrans_pattern(docker_t, docker_share_t, spc_t)
+-domtrans_pattern(docker_t, docker_var_lib_t, spc_t)
+-allow docker_t spc_t:process { setsched signal_perms };
+-ps_process_pattern(docker_t, spc_t)
+-allow docker_t spc_t:socket_class_set { relabelto relabelfrom };
+-
+-optional_policy(`
+-	dbus_chat_system_bus(spc_t)
+-')
+-
+-optional_policy(`
+-	unconfined_domain_noaudit(spc_t)
+-')
+-
+-optional_policy(`
+-	unconfined_domain(docker_t)
+-')
+-
+-optional_policy(`
+-	virt_transition_svirt_sandbox(spc_t, system_r)
+-')
+-
+-########################################
+-#
+-# docker upstream policy
+-#
+-
+-optional_policy(`
+-#    domain_stub_named_filetrans_domain()
+-     gen_require(`
+-        attribute named_filetrans_domain;
+-     ')
+-
+-      docker_filetrans_named_content(named_filetrans_domain)
+-')
+-
+-optional_policy(`
+-    lvm_stub()
+-    docker_rw_sem(lvm_t)
+-')
+-
+-optional_policy(`
+-    staff_stub()
+-    docker_stream_connect(staff_t)
+-    docker_exec(staff_t)
+-')
+-
+-optional_policy(`
+-    virt_stub_svirt_sandbox_domain()
+-    virt_stub_svirt_sandbox_file()
+-    allow svirt_sandbox_domain self:netlink_kobject_uevent_socket create_socket_perms;
+-    docker_read_share_files(svirt_sandbox_domain)
+-    docker_lib_filetrans(svirt_sandbox_domain,svirt_sandbox_file_t, sock_file)
+-    docker_use_ptys(svirt_sandbox_domain)
+-    docker_spc_stream_connect(svirt_sandbox_domain)
+-    fs_list_tmpfs(svirt_sandbox_domain)
+-    fs_rw_hugetlbfs_files(svirt_sandbox_domain)
+-    fs_dontaudit_remount_tmpfs(svirt_sandbox_domain)
+-    dev_dontaudit_mounton_sysfs(svirt_sandbox_domain)
+-
+-    tunable_policy(`virt_sandbox_use_fusefs',`
+-	fs_manage_fusefs_dirs(svirt_sandbox_domain)
+-	fs_manage_fusefs_files(svirt_sandbox_domain)
+-	fs_manage_fusefs_symlinks(svirt_sandbox_domain)
+-    ')
+-     gen_require(`
+-        attribute domain;
+-     ')
+-
+-     dontaudit svirt_sandbox_domain domain:key {search link};
+-')
+-
+-optional_policy(`
+-	gen_require(`
+-		type pcp_pmcd_t;
+-	')
+-	docker_manage_lib_files(pcp_pmcd_t)
+-')
+diff --git a/components/engine/hack/make/.build-rpm/docker-engine-selinux-euleros.spec b/components/engine/hack/make/.build-rpm/docker-engine-selinux-euleros.spec
+index 0d5189514c..335f123c8b 100644
+--- a/components/engine/hack/make/.build-rpm/docker-engine-selinux-euleros.spec
++++ b/components/engine/hack/make/.build-rpm/docker-engine-selinux-euleros.spec
+@@ -29,7 +29,7 @@ URL: https://dockerproject.org
+ 
+ %global selinuxtype targeted
+ %global moduletype  services
+-%global modulenames docker
++%global modulenames container
+ 
+ Requires(post): selinux-policy-base >= %{selinux_policyver}, selinux-policy-targeted >= %{selinux_policyver}, policycoreutils, policycoreutils-python libselinux-utils
+ BuildRequires: selinux-policy selinux-policy-devel
+@@ -79,7 +79,10 @@ if [ $1 -eq 1 ]; then
+     %{_sbindir}/setsebool -P -N virt_use_nfs=1 virt_sandbox_use_all_caps=1
+ fi
+ %_format MODULES %{_datadir}/selinux/packages/$x.pp.bz2
+-%{_sbindir}/semodule -n -s %{selinuxtype} -i $MODULES
++%{_sbindir}/semodule -n -s %{selinuxtype} -r container 2> /dev/null
++%{_sbindir}/semodule -n -s %{selinuxtype} -d docker 2> /dev/null
++%{_sbindir}/semodule -n -s %{selinuxtype} -d gear 2> /dev/null
++%{_sbindir}/semodule -n -X 200 -s %{selinuxtype} -i $MODULES
+ if %{_sbindir}/selinuxenabled ; then
+     %{_sbindir}/load_policy
+     %relabel_files
+@@ -97,6 +100,10 @@ if [ $1 -eq 0 ]; then
+     fi
+ fi
+ 
++. %{_sysconfdir}/selinux/config
++sed -e "\|container_file_t|h; \${x;s|container_file_t||;{g;t};a\\" -e "container_file_t" -e "}" -i /etc/selinux/${SELINUXTYPE}/contexts/c
++ustomizable_types
++
+ %files
+ %doc LICENSE
+ %defattr(-,root,root,0755)
+-- 
+2.17.1
+

@@ -1,0 +1,89 @@
+From c86ba11974a14d4e1fadede7f30c9a9401c81659 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Wed, 26 Feb 2020 07:06:58 -0500
+Subject: [PATCH] docker: create a soft link from runtime-default to
+ runtime-runc
+
+reason: create a soft link from runtime-default to runtime-runc,
+and also copy and back it content
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/daemon/daemon.go | 57 ++++++++++++++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index f591878a..3ff56912 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -1147,6 +1147,9 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 		return nil, err
+ 	}
+ 
++	if err := d.linkRuntimeDefault(); err != nil {
++		logrus.Warnf("create soft link failed : %v", err)
++	}
+ 	if err := d.restore(); err != nil {
+ 		return nil, err
+ 	}
+@@ -1587,3 +1590,57 @@ func (daemon *Daemon) BuilderBackend() builder.Backend {
+ 		*images.ImageService
+ 	}{daemon, daemon.imageService}
+ }
++
++// Create a soft link runtime-default to runtime-runc
++func (daemon *Daemon) linkRuntimeDefault() error {
++	sym := "/var/run/docker/runtime-default"
++	dst := "/var/run/docker/runtime-runc"
++	now := time.Now().Format("/var/run/docker/bak/2006-01-03.150405.000/")
++	bak := func(p string) string {
++		os.MkdirAll(now, 0700)
++		return now + filepath.Base(p)
++	}
++	mov := func(src, dst string) error {
++		var err error
++		dirs, _ := ioutil.ReadDir(src + "/moby")
++		for _, f := range dirs {
++			old := fmt.Sprintf("%s/moby/%s", src, f.Name())
++			new := fmt.Sprintf("%s/moby/%s", dst, f.Name())
++			if e := os.Rename(old, new); e != nil {
++				if err == nil {
++					err = fmt.Errorf("mv %s %s", src, dst)
++				}
++				err = fmt.Errorf("%s %s %v", err, f.Name(), e)
++			}
++		}
++		return err
++	}
++	if err := os.MkdirAll(dst+"/moby", 0700); err != nil {
++		return fmt.Errorf("create runtime-runc failed")
++	}
++	if f, _ := os.Lstat(dst); f.Mode()&os.ModeSymlink != 0 {
++		if err := os.Rename(dst, bak(dst)); err != nil { // dst must be dir.
++			return fmt.Errorf("bak runtime-runc failed %v", err)
++		}
++		if err := os.MkdirAll(dst+"/moby", 0700); err != nil {
++			return fmt.Errorf("create runtime-runc failed")
++		}
++		if err := mov(bak(dst), dst); err != nil {
++			return err
++		}
++	}
++
++	if f, err := os.Lstat(sym); err != nil { // sym not exist, link it.
++		return os.Symlink(dst, sym)
++	} else if f.Mode()&os.ModeSymlink != 0 { // sym is symlink, return ok.
++		return nil
++	}
++
++	if err := os.Rename(sym, bak(sym)); err != nil { // sym must be link.
++		return fmt.Errorf("bak runtime-default failed")
++	}
++	if err := mov(bak(sym), dst); err != nil {
++		return err
++	}
++	return os.Symlink(dst, sym)
++}
+-- 
+2.19.1
+

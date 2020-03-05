@@ -1,0 +1,32 @@
+From d66f2fd39cd2a86ab96e762a79659e677f0af6e4 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Wed, 8 Jan 2020 20:49:55 +0800
+Subject: [PATCH] docker: update log-opt when upgrade from 1.11.2
+
+reason:Container's default log tag begins with "docker" in 1.11.2,
+but not in 18.09, which is not good for log filtering. So we modify
+this to allow users to update containers' log tags by setting deamon
+config.
+
+Change-Id: I9b30e8fe314a272ed187911d843d803277128b76
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/engine/daemon/daemon.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 3bd0d93..0dab6db 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -327,7 +327,7 @@ func (daemon *Daemon) restore() error {
+ 		// The LogConfig.Type is empty if the container was created before docker 1.12 with default log driver.
+ 		// We should rewrite it to use the daemon defaults.
+ 		// Fixes https://github.com/docker/docker/issues/22536
+-		if c.HostConfig.LogConfig.Type == "" {
++		if c.HostConfig.LogConfig.Type == "" || c.HostConfig.LogConfig.Type == daemon.defaultLogConfig.Type {
+ 			if err := daemon.mergeAndVerifyLogConfig(&c.HostConfig.LogConfig); err != nil {
+ 				logrus.Errorf("Failed to verify log config for container %s: %q", c.ID, err)
+ 				continue
+-- 
+1.8.3.1
+

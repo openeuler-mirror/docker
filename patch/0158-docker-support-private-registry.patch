@@ -1,0 +1,904 @@
+From ca795c91b91ea38ce26616825c646f59a746edde Mon Sep 17 00:00:00 2001
+From: jiangpengfei <jiangpengfei9@huawei.com>
+Date: Mon, 30 Sep 2019 14:15:45 -0400
+Subject: [PATCH] docker: support private registry
+
+reason:
+1. add registries config to support downnload private registry image
+2. add LLT testcases for registries config
+
+Change-Id: Icd77363c6c2024e9ece0b79e65aeaee3af928caa
+Signed-off-by: jiangpengfei <jiangpengfei9@huawei.com>
+---
+ components/engine/api/types/registry/registry.go   | 162 ++++++++++++++++++++-
+ .../engine/api/types/registry/registry_test.go     |  73 ++++++++++
+ components/engine/cmd/dockerd/daemon_test.go       |  24 +++
+ components/engine/daemon/config/config.go          |  13 ++
+ components/engine/daemon/reload.go                 |  26 ++++
+ components/engine/distribution/pull_v2.go          |  26 +++-
+ components/engine/distribution/push_v2_test.go     |   4 +
+ components/engine/opts/opts.go                     |  34 +++++
+ components/engine/registry/config.go               |  24 ++-
+ components/engine/registry/service.go              |  12 ++
+ components/engine/registry/service_v2.go           |  98 +++++++++----
+ components/engine/registry/service_v2_test.go      | 104 +++++++++++++
+ 12 files changed, 564 insertions(+), 36 deletions(-)
+ create mode 100644 components/engine/api/types/registry/registry_test.go
+ create mode 100644 components/engine/registry/service_v2_test.go
+
+diff --git a/components/engine/api/types/registry/registry.go b/components/engine/api/types/registry/registry.go
+index 8789ad3..1ebf18b 100644
+--- a/components/engine/api/types/registry/registry.go
++++ b/components/engine/api/types/registry/registry.go
+@@ -2,9 +2,25 @@ package registry // import "github.com/docker/docker/api/types/registry"
+ 
+ import (
+ 	"encoding/json"
++	"fmt"
+ 	"net"
++	"net/url"
++	"regexp"
++	"strings"
+ 
+-	"github.com/opencontainers/image-spec/specs-go/v1"
++	"github.com/docker/distribution/reference"
++	v1 "github.com/opencontainers/image-spec/specs-go/v1"
++)
++
++var (
++	// DefaultEndpoint for docker.io
++	DefaultEndpoint = Endpoint{
++		Address: "https://registry-1.docker.io",
++		url: url.URL{
++			Scheme: "https",
++			Host:   "registry-1.docker.io",
++		},
++	}
+ )
+ 
+ // ServiceConfig stores daemon registry services configuration.
+@@ -14,6 +30,150 @@ type ServiceConfig struct {
+ 	InsecureRegistryCIDRs                   []*NetIPNet           `json:"InsecureRegistryCIDRs"`
+ 	IndexConfigs                            map[string]*IndexInfo `json:"IndexConfigs"`
+ 	Mirrors                                 []string
++	Registries                              Registries
++}
++
++// Registries is a slice of type Registry.
++type Registries []Registry
++
++// Registry includes all data relevant for the lookup of push and pull
++// endpoints.
++type Registry struct {
++	// Pattern is a string contains the registry domain name which pull/push
++	// images directly, don't need to convert to pull from mirror registry
++	Pattern string `json:"pattern"`
++	// Mirrors is a slice contains registry mirror url address
++	Mirrors       []Endpoint `json:"mirrors"`
++	patternRegexp *regexp.Regexp
++}
++
++// Endpoint includes all data associated with a given registry endpoint.
++type Endpoint struct {
++	// Address is the endpoints base URL when assembling a repository in a
++	// registry (e.g., "registry.com:5000/v2").
++	Address string `json:"address"`
++	// url is used during endpoint lookup and avoids to redundantly parse
++	// Address when the Endpoint is used.
++	url url.URL
++	// InsecureSkipVerify: if true, TLS accepts any certificate presented
++	// by the server and any host name in that certificate. In this mode,
++	// TLS is susceptible to man-in-the-middle attacks. This should be used
++	// only for testing
++	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
++}
++
++// RewriteReference strips the prefix from ref and appends it to registry.
++// If the prefix is empty, ref remains unchanged.  An error is returned if
++// prefix doesn't prefix ref.
++func RewriteReference(ref reference.Named, prefix string, registry *url.URL) (reference.Named, error) {
++	// Sanity check the provided arguments
++	if ref == nil {
++		return nil, fmt.Errorf("provided reference is nil")
++	}
++	if registry == nil {
++		return nil, fmt.Errorf("provided registry is nil")
++	}
++
++	// don't rewrite the default endpoints
++	if *registry == DefaultEndpoint.url {
++		return ref, nil
++	}
++
++	if prefix == "" {
++		return ref, nil
++	}
++
++	baseAddress := strings.TrimPrefix(registry.String(), registry.Scheme+"://")
++
++	refStr := ref.String()
++	if !strings.HasPrefix(refStr, prefix) {
++		return nil, fmt.Errorf("unable to rewrite reference %q with prefix %q", refStr, prefix)
++	}
++	remainder := strings.TrimPrefix(refStr, prefix)
++	remainder = strings.TrimPrefix(remainder, "/")
++	baseAddress = strings.TrimSuffix(baseAddress, "/")
++
++	newRefStr := baseAddress + "/" + remainder
++	newRef, err := reference.ParseNamed(newRefStr)
++	if err != nil {
++		return nil, fmt.Errorf("unable to rewrite reference %q with prefix %q to %q: %v", refStr, prefix, newRefStr, err)
++	}
++	return newRef, nil
++}
++
++// GetURL returns the Endpoint's URL.
++func (r *Endpoint) GetURL() *url.URL {
++	// return the pointer of a copy
++	url := r.url
++	return &url
++}
++
++// MatchWhiteList return reference match the r.whiteListRegexp or not
++func (r *Registry) MatchPattern(reference string) bool {
++	if r.patternRegexp == nil {
++		return false
++	}
++
++	return r.patternRegexp.MatchString(reference)
++}
++
++// FindRegistry returns the Registry mirror url address if reference not in the whitelist
++// or nil if reference in the Registry whitelist.
++func (r Registries) FindRegistry(reference string) *Registry {
++	var reg *Registry = nil
++	for i := range r {
++		match := r[i].MatchPattern(reference)
++		if match {
++			reg = &r[i]
++			break
++		}
++	}
++
++	return reg
++}
++
++// Prepare must be called on each new Registry.  It sets up all specified push
++// and pull endpoints
++func (r *Registry) Prepare() error {
++	var err error
++	r.patternRegexp, err = regexp.Compile(r.Pattern)
++	if err != nil {
++		return fmt.Errorf("invalid pattern: %v", err)
++	}
++
++	prepareEndpoints := func(endpoints []Endpoint) ([]Endpoint, error) {
++		for i := range endpoints {
++			if err := endpoints[i].Prepare(); err != nil {
++				return nil, err
++			}
++		}
++
++		return endpoints, nil
++	}
++
++	if r.Mirrors, err = prepareEndpoints(r.Mirrors); err != nil {
++		return err
++	}
++
++	if len(r.Mirrors) == 0 {
++		return fmt.Errorf("Registry with whitelist %v without mirror endpoints", r.Pattern)
++	}
++
++	return nil
++}
++
++// Prepare sets up the Endpoint.
++func (r *Endpoint) Prepare() error {
++	if !strings.HasPrefix(r.Address, "http://") && !strings.HasPrefix(r.Address, "https://") {
++		return fmt.Errorf("%s: address must start with %q or %q", r.Address, "http://", "https://")
++	}
++
++	u, err := url.Parse(r.Address)
++	if err != nil {
++		return err
++	}
++	r.url = *u
++	return nil
+ }
+ 
+ // NetIPNet is the net.IPNet type, which can be marshalled and
+diff --git a/components/engine/api/types/registry/registry_test.go b/components/engine/api/types/registry/registry_test.go
+new file mode 100644
+index 0000000..e532d4d
+--- /dev/null
++++ b/components/engine/api/types/registry/registry_test.go
+@@ -0,0 +1,73 @@
++package registry
++
++import (
++	"net/url"
++	"testing"
++
++	"github.com/docker/distribution/reference"
++	"gotest.tools/assert"
++)
++
++func TestRewriteReference(t *testing.T) {
++	var ref reference.Named
++	var prefix string
++	var registry *url.URL
++
++	// case 1: ref is nil
++	_, err := RewriteReference(ref, prefix, registry)
++	assert.ErrorContains(t, err, "provided reference is nil")
++
++	ref, err = reference.ParseNormalizedNamed("hello.com/official/busybox")
++	assert.NilError(t, err)
++
++	// case 2: registry is nil
++	_, err = RewriteReference(ref, prefix, registry)
++	assert.ErrorContains(t, err, "provided registry is nil")
++
++	registry = &url.URL{
++		Scheme: "https",
++		Host:   "exapmle.com",
++	}
++
++	// case 3: prefix is empty, expect nil
++	rewriteRef, err := RewriteReference(ref, prefix, registry)
++	assert.NilError(t, err)
++	assert.Equal(t, rewriteRef, ref)
++
++	// case 4: registry equal to DefaultEndpoint.url
++	registry = &url.URL{
++		Scheme: "https",
++		Host:   "registry-1.docker.io",
++	}
++	rewriteRef, err = RewriteReference(ref, prefix, registry)
++	assert.NilError(t, err)
++	assert.Equal(t, rewriteRef, ref)
++
++	// case 5: ref.String() doesn't have prefix
++	registry = &url.URL{
++		Scheme: "https",
++		Host:   "test.io",
++	}
++	prefix = "example.com"
++	rewriteRef, err = RewriteReference(ref, prefix, registry)
++	assert.ErrorContains(t, err, "unable to rewrite reference")
++
++	// case 6: registry host is invalid
++	prefix = "hello.com"
++	registry = &url.URL{
++		Scheme: "https",
++		Host:   "[?f,*fds",
++	}
++	rewriteRef, err = RewriteReference(ref, prefix, registry)
++	assert.ErrorContains(t, err, "unable to rewrite reference")
++
++	// case 7: everything is ok
++	registry = &url.URL{
++		Scheme: "https",
++		Host:   "test.io",
++	}
++	prefix = "hello.com"
++	rewriteRef, err = RewriteReference(ref, prefix, registry)
++	assert.NilError(t, err)
++	assert.Equal(t, rewriteRef.String(), "test.io/official/busybox")
++}
+diff --git a/components/engine/cmd/dockerd/daemon_test.go b/components/engine/cmd/dockerd/daemon_test.go
+index ad447e3..681bf87 100644
+--- a/components/engine/cmd/dockerd/daemon_test.go
++++ b/components/engine/cmd/dockerd/daemon_test.go
+@@ -180,3 +180,27 @@ func TestLoadDaemonConfigWithRegistryOptions(t *testing.T) {
+ 	assert.Check(t, is.Len(loadedConfig.Mirrors, 1))
+ 	assert.Check(t, is.Len(loadedConfig.InsecureRegistries, 1))
+ }
++
++func TestLoadDaemonConfigWithRegistriesOptions(t *testing.T) {
++	content := `{
++		"registries": [
++			{
++				"pattern": "xxx.com",
++				"mirrors": [
++					{
++						"address": "http://hello.mirror.com"
++					}
++				]
++			}
++		]
++	}`
++	tempFile := fs.NewFile(t, "config", fs.WithContent(content))
++	defer tempFile.Remove()
++
++	opts := defaultOptions(tempFile.Path())
++	loadedConfig, err := loadDaemonCliConfig(opts)
++	assert.NilError(t, err)
++	assert.Assert(t, loadedConfig != nil)
++
++	assert.Check(t, is.Len(loadedConfig.Registries, 1))
++}
+diff --git a/components/engine/daemon/config/config.go b/components/engine/daemon/config/config.go
+index 2141ce8..07d4c89 100644
+--- a/components/engine/daemon/config/config.go
++++ b/components/engine/daemon/config/config.go
+@@ -435,6 +435,10 @@ func getConflictFreeConfiguration(configFile string, flags *pflag.FlagSet) (*Con
+ 		return nil, err
+ 	}
+ 
++	if len(config.Mirrors) > 0 && len(config.Registries) > 0 {
++		return nil, fmt.Errorf("registry-mirror config conflict with registries config")
++	}
++
+ 	if config.RootDeprecated != "" {
+ 		logrus.Warn(`The "graph" config file option is deprecated. Please use "data-root" instead.`)
+ 
+@@ -472,6 +476,10 @@ func findConfigurationConflicts(config map[string]interface{}, flags *pflag.Flag
+ 	unknownKeys := make(map[string]interface{})
+ 	for key, value := range config {
+ 		if flag := flags.Lookup(key); flag == nil && !skipValidateOptions[key] {
++			// skip config-only flags
++			if key == "registries" {
++				continue
++			}
+ 			unknownKeys[key] = value
+ 		}
+ 	}
+@@ -579,6 +587,11 @@ func Validate(config *Config) error {
+ 		}
+ 	}
+ 
++	// validate registries mirror settings
++	if err := opts.ValidateRegistries(config.Registries); err != nil {
++		return err
++	}
++
+ 	// validate platform-specific settings
+ 	return config.ValidatePlatformConfig()
+ }
+diff --git a/components/engine/daemon/reload.go b/components/engine/daemon/reload.go
+index 026d7dd..b8132cc 100644
+--- a/components/engine/daemon/reload.go
++++ b/components/engine/daemon/reload.go
+@@ -65,6 +65,9 @@ func (daemon *Daemon) Reload(conf *config.Config) (err error) {
+ 	if err := daemon.reloadLiveRestore(conf, attributes); err != nil {
+ 		return err
+ 	}
++	if err := daemon.reloadRegistries(conf, attributes);err != nil {
++		return err
++	}
+ 	return daemon.reloadNetworkDiagnosticPort(conf, attributes)
+ }
+ 
+@@ -294,6 +297,29 @@ func (daemon *Daemon) reloadRegistryMirrors(conf *config.Config, attributes map[
+ 	return nil
+ }
+ 
++// reloadRegistries updates the registries configuration and the passed attributes
++func (daemon *Daemon) reloadRegistries(conf *config.Config, attributes map[string]string) error {
++	// update corresponding configuration
++	if conf.IsValueSet("registries") {
++		daemon.configStore.Registries = conf.Registries
++		if err := daemon.RegistryService.LoadRegistries(conf.Registries); err != nil {
++			return err
++		}
++	}
++
++	// prepare reload event attributes with updatable configurations
++	if daemon.configStore.Registries != nil {
++		registries, err := json.Marshal(daemon.configStore.Registries)
++		if err != nil {
++			return err
++		}
++		attributes["registries"] = string(registries)
++	} else {
++		attributes["registries"] = "[]"
++	}
++	return nil
++}
++
+ // reloadLiveRestore updates configuration with live retore option
+ // and updates the passed attributes
+ func (daemon *Daemon) reloadLiveRestore(conf *config.Config, attributes map[string]string) error {
+diff --git a/components/engine/distribution/pull_v2.go b/components/engine/distribution/pull_v2.go
+index 99cee79..4150241 100644
+--- a/components/engine/distribution/pull_v2.go
++++ b/components/engine/distribution/pull_v2.go
+@@ -20,10 +20,11 @@ import (
+ 	"github.com/docker/distribution/registry/api/errcode"
+ 	"github.com/docker/distribution/registry/client/auth"
+ 	"github.com/docker/distribution/registry/client/transport"
++	registrytypes "github.com/docker/docker/api/types/registry"
+ 	"github.com/docker/docker/distribution/metadata"
+ 	"github.com/docker/docker/distribution/xfer"
+ 	"github.com/docker/docker/image"
+-	"github.com/docker/docker/image/v1"
++	v1 "github.com/docker/docker/image/v1"
+ 	"github.com/docker/docker/layer"
+ 	"github.com/docker/docker/pkg/ioutils"
+ 	"github.com/docker/docker/pkg/progress"
+@@ -66,6 +67,10 @@ type v2Puller struct {
+ 
+ func (p *v2Puller) Pull(ctx context.Context, ref reference.Named, platform *specs.Platform) (err error) {
+ 	// TODO(tiborvass): was ReceiveTimeout
++	if p.endpoint.Prefix != "" {
++		p.config.MetaHeaders["Docker-Prefix"] = []string{p.endpoint.Prefix}
++	}
++
+ 	p.repo, p.confirmedV2, err = NewV2Repository(ctx, p.repoInfo, p.endpoint, p.config.MetaHeaders, p.config.AuthConfig, "pull")
+ 	if err != nil {
+ 		logrus.Warnf("Error getting v2 registry: %v", err)
+@@ -334,6 +339,17 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform
+ 		return false, err
+ 	}
+ 
++	var pullRef reference.Named = ref
++	if len(p.endpoint.Prefix) != 0 {
++		// Note that pullRef is only used for pulling while ref is used as
++		// the reference for storing the image
++		pullRef, err = registrytypes.RewriteReference(ref, p.endpoint.Prefix, p.endpoint.URL)
++		if err != nil {
++			return false, err
++		}
++		logrus.Infof("rewriting %q to %q", ref.String(), pullRef.String())
++	}
++
+ 	var (
+ 		manifest    distribution.Manifest
+ 		tagOrDigest string // Used for logging/progress only
+@@ -379,7 +395,7 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform
+ 	// the other side speaks the v2 protocol.
+ 	p.confirmedV2 = true
+ 
+-	logrus.Debugf("Pulling ref from V2 registry: %s", reference.FamiliarString(ref))
++	logrus.Debugf("Pulling ref %q from V2 registry: %s", ref, p.endpoint.URL)
+ 	progress.Message(p.config.ProgressOutput, tagOrDigest, "Pulling from "+reference.FamiliarName(p.repo.Named()))
+ 
+ 	var (
+@@ -392,18 +408,18 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform
+ 		if p.config.RequireSchema2 {
+ 			return false, fmt.Errorf("invalid manifest: not schema2")
+ 		}
+-		id, manifestDigest, err = p.pullSchema1(ctx, ref, v, platform)
++		id, manifestDigest, err = p.pullSchema1(ctx, pullRef, v, platform)
+ 		if err != nil {
+ 			return false, err
+ 		}
+ 	case *schema2.DeserializedManifest:
+-		id, manifestDigest, err = p.pullSchema2(ctx, ref, v, platform)
++		id, manifestDigest, err = p.pullSchema2(ctx, pullRef, v, platform)
+ 		if err != nil {
+ 			logrus.Errorf("try to pull schema2 failed. manifest: %+v", manifest.References())
+ 			return false, err
+ 		}
+ 	case *manifestlist.DeserializedManifestList:
+-		id, manifestDigest, err = p.pullManifestList(ctx, ref, v, platform)
++		id, manifestDigest, err = p.pullManifestList(ctx, pullRef, v, platform)
+ 		if err != nil {
+ 			logrus.Errorf("try to get manifest data from storage failed. manifest: %+v", manifest.References())
+ 			return false, err
+diff --git a/components/engine/distribution/push_v2_test.go b/components/engine/distribution/push_v2_test.go
+index 436b4a1..8d39403 100644
+--- a/components/engine/distribution/push_v2_test.go
++++ b/components/engine/distribution/push_v2_test.go
+@@ -488,6 +488,10 @@ func (s *mockReferenceStore) Get(ref reference.Named) (digest.Digest, error) {
+ 	return "", nil
+ }
+ 
++func (s *mockReferenceStore) List() []digest.Digest {
++	return []digest.Digest{}
++}
++
+ func TestWhenEmptyAuthConfig(t *testing.T) {
+ 	for _, authInfo := range []struct {
+ 		username      string
+diff --git a/components/engine/opts/opts.go b/components/engine/opts/opts.go
+index de8aacb..db63aa6 100644
+--- a/components/engine/opts/opts.go
++++ b/components/engine/opts/opts.go
+@@ -7,6 +7,7 @@ import (
+ 	"regexp"
+ 	"strings"
+ 
++	"github.com/docker/docker/api/types/registry"
+ 	"github.com/docker/go-units"
+ )
+ 
+@@ -15,6 +16,11 @@ var (
+ 	domainRegexp = regexp.MustCompile(`^(:?(:?[a-zA-Z0-9]|(:?[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]))(:?\.(:?[a-zA-Z0-9]|(:?[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])))*)\.?\s*$`)
+ )
+ 
++const (
++	maxRegistryNum  = 100
++	maxMirrorNumber = 100
++)
++
+ // ListOpts holds a list of values and a validation function.
+ type ListOpts struct {
+ 	values    *[]string
+@@ -273,6 +279,34 @@ func ValidateSingleGenericResource(val string) (string, error) {
+ 	return val, nil
+ }
+ 
++func ValidateRegistries(registries registry.Registries) error {
++	if len(registries) == 0 {
++		return nil
++	}
++
++	if len(registries) > maxRegistryNum {
++		return fmt.Errorf("registries config registry number should not larger than %d", maxRegistryNum)
++	}
++
++	for _, reg := range registries {
++		if len(reg.Pattern) == 0 || len(reg.Mirrors) == 0 {
++			return fmt.Errorf("registry pattern and mirrors is required, should not be empty")
++		}
++
++		if len(reg.Mirrors) > maxMirrorNumber {
++			return fmt.Errorf("registry mirrors number should not larger than %d", maxMirrorNumber)
++		}
++
++		for _, mirror := range reg.Mirrors {
++			if len(mirror.Address) == 0 {
++				return fmt.Errorf("mirror address is required, should not be empty")
++			}
++		}
++	}
++
++	return nil
++}
++
+ // ParseLink parses and validates the specified string as a link format (name:alias)
+ func ParseLink(val string) (string, string, error) {
+ 	if val == "" {
+diff --git a/components/engine/registry/config.go b/components/engine/registry/config.go
+index ea491b9..9c2b762 100644
+--- a/components/engine/registry/config.go
++++ b/components/engine/registry/config.go
+@@ -20,6 +20,10 @@ type ServiceOptions struct {
+ 	Mirrors                        []string `json:"registry-mirrors,omitempty"`
+ 	InsecureRegistries             []string `json:"insecure-registries,omitempty"`
+ 
++	// Registries holds information associated with registries and their
++	// push and pull mirrors.
++	Registries registrytypes.Registries `json:"registries,omitempty"`
++
+ 	// V2Only controls access to legacy registries.  If it is set to true via the
+ 	// command line flag the daemon will not attempt to contact v1 legacy registries
+ 	V2Only bool `json:"disable-legacy-registry,omitempty"`
+@@ -97,6 +101,9 @@ func newServiceConfig(options ServiceOptions) (*serviceConfig, error) {
+ 	if err := config.LoadInsecureRegistries(options.InsecureRegistries); err != nil {
+ 		return nil, err
+ 	}
++	if err := config.LoadRegistries(options.Registries); err != nil {
++		return nil, err
++	}
+ 
+ 	return config, nil
+ }
+@@ -248,7 +255,22 @@ skip:
+ 	return nil
+ }
+ 
+-// allowNondistributableArtifacts returns true if the provided hostname is part of the list of registries
++// LoadRegistries loads the user-specified configuration options for registries
++func (config *serviceConfig) LoadRegistries(registries registrytypes.Registries) error {
++	for _, registry := range registries {
++		if err := registry.Prepare(); err != nil {
++			return err
++		}
++		config.Registries = append(config.Registries, registry)
++	}
++
++	for i, r := range config.Registries {
++		logrus.Infof("REGISTRY %d: %v", i, r)
++	}
++	return nil
++}
++
++// allowNondistributableArtifacts returns true if the provided hostname is part of the list of regsitries
+ // that allow push of nondistributable artifacts.
+ //
+ // The list can contain elements with CIDR notation to specify a whole subnet. If the subnet contains an IP
+diff --git a/components/engine/registry/service.go b/components/engine/registry/service.go
+index d38f44b..8530f97 100644
+--- a/components/engine/registry/service.go
++++ b/components/engine/registry/service.go
+@@ -34,6 +34,7 @@ type Service interface {
+ 	LoadAllowNondistributableArtifacts([]string) error
+ 	LoadMirrors([]string) error
+ 	LoadInsecureRegistries([]string) error
++	LoadRegistries(registrytypes.Registries) error
+ }
+ 
+ // DefaultService is a registry service. It tracks configuration data such as a list
+@@ -64,6 +65,7 @@ func (s *DefaultService) ServiceConfig() *registrytypes.ServiceConfig {
+ 		InsecureRegistryCIDRs:                   make([]*(registrytypes.NetIPNet), 0),
+ 		IndexConfigs:                            make(map[string]*(registrytypes.IndexInfo)),
+ 		Mirrors:                                 make([]string, 0),
++		Registries:                              make([]registrytypes.Registry, 0),
+ 	}
+ 
+ 	// construct a new ServiceConfig which will not retrieve s.Config directly,
+@@ -77,6 +79,7 @@ func (s *DefaultService) ServiceConfig() *registrytypes.ServiceConfig {
+ 	}
+ 
+ 	servConfig.Mirrors = append(servConfig.Mirrors, s.config.ServiceConfig.Mirrors...)
++	servConfig.Registries = append(servConfig.Registries, s.config.ServiceConfig.Registries...)
+ 
+ 	return &servConfig
+ }
+@@ -105,6 +108,14 @@ func (s *DefaultService) LoadInsecureRegistries(registries []string) error {
+ 	return s.config.LoadInsecureRegistries(registries)
+ }
+ 
++// LoadRegistries loads registries for Service
++func (s *DefaultService) LoadRegistries(registries registrytypes.Registries) error {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++
++	return s.config.LoadRegistries(registries)
++}
++
+ // Auth contacts the public registry with the provided credentials,
+ // and returns OK if authentication was successful.
+ // It can be used to verify the validity of a client's credentials.
+@@ -258,6 +269,7 @@ type APIEndpoint struct {
+ 	Official                       bool
+ 	TrimHostname                   bool
+ 	TLSConfig                      *tls.Config
++	Prefix                         string
+ }
+ 
+ // ToV1Endpoint returns a V1 API endpoint based on the APIEndpoint
+diff --git a/components/engine/registry/service_v2.go b/components/engine/registry/service_v2.go
+index 3a56dc9..adeb10c 100644
+--- a/components/engine/registry/service_v2.go
++++ b/components/engine/registry/service_v2.go
+@@ -1,47 +1,87 @@
+ package registry // import "github.com/docker/docker/registry"
+ 
+ import (
++	"crypto/tls"
+ 	"net/url"
+ 	"strings"
+ 
++	registrytypes "github.com/docker/docker/api/types/registry"
+ 	"github.com/docker/go-connections/tlsconfig"
+ )
+ 
+ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndpoint, err error) {
+-	tlsConfig := tlsconfig.ServerDefault()
+-	if hostname == DefaultNamespace || hostname == IndexHostname {
+-		// v2 mirrors
+-		for _, mirror := range s.config.Mirrors {
+-			if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
+-				mirror = "https://" + mirror
+-			}
+-			mirrorURL, err := url.Parse(mirror)
+-			if err != nil {
+-				return nil, err
++	var tlsConfig *tls.Config
++
++	// if s.config.Registries is set, lookup regsitry mirror addr from s.config.Registries
++	if len(s.config.Registries) > 0 {
++		reg := s.config.Registries.FindRegistry(hostname)
++
++		if reg != nil {
++			var regEndpoints []registrytypes.Endpoint = reg.Mirrors
++
++			lastIndex := len(regEndpoints) - 1
++			for i, regEP := range regEndpoints {
++				official := regEP.Address == registrytypes.DefaultEndpoint.Address
++				regURL := regEP.GetURL()
++
++				if official {
++					tlsConfig = tlsconfig.ServerDefault()
++				} else {
++					tlsConfig, err = s.tlsConfigForMirror(regURL)
++					if err != nil {
++						return nil, err
++					}
++				}
++				tlsConfig.InsecureSkipVerify = regEP.InsecureSkipVerify
++				endpoints = append(endpoints, APIEndpoint{
++					URL:          regURL,
++					Version:      APIVersion2,
++					Official:     official,
++					TrimHostname: true,
++					TLSConfig:    tlsConfig,
++					Prefix:       hostname,
++					// the last endpoint is not considered a mirror
++					Mirror: i != lastIndex,
++				})
+ 			}
+-			mirrorTLSConfig, err := s.tlsConfigForMirror(mirrorURL)
+-			if err != nil {
+-				return nil, err
++			return endpoints, nil
++		}
++	} else {
++		tlsConfig = tlsconfig.ServerDefault()
++		if hostname == DefaultNamespace || hostname == IndexHostname {
++			// v2 mirrors
++			for _, mirror := range s.config.Mirrors {
++				if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
++					mirror = "https://" + mirror
++				}
++				mirrorURL, err := url.Parse(mirror)
++				if err != nil {
++					return nil, err
++				}
++				mirrorTLSConfig, err := s.tlsConfigForMirror(mirrorURL)
++				if err != nil {
++					return nil, err
++				}
++				endpoints = append(endpoints, APIEndpoint{
++					URL: mirrorURL,
++					// guess mirrors are v2
++					Version:      APIVersion2,
++					Mirror:       true,
++					TrimHostname: true,
++					TLSConfig:    mirrorTLSConfig,
++				})
+ 			}
++			// v2 registry
+ 			endpoints = append(endpoints, APIEndpoint{
+-				URL: mirrorURL,
+-				// guess mirrors are v2
++				URL:          DefaultV2Registry,
+ 				Version:      APIVersion2,
+-				Mirror:       true,
++				Official:     true,
+ 				TrimHostname: true,
+-				TLSConfig:    mirrorTLSConfig,
++				TLSConfig:    tlsConfig,
+ 			})
+-		}
+-		// v2 registry
+-		endpoints = append(endpoints, APIEndpoint{
+-			URL:          DefaultV2Registry,
+-			Version:      APIVersion2,
+-			Official:     true,
+-			TrimHostname: true,
+-			TLSConfig:    tlsConfig,
+-		})
+ 
+-		return endpoints, nil
++			return endpoints, nil
++		}
+ 	}
+ 
+ 	ana := allowNondistributableArtifacts(s.config, hostname)
+@@ -57,7 +97,7 @@ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndp
+ 				Scheme: "https",
+ 				Host:   hostname,
+ 			},
+-			Version: APIVersion2,
++			Version:                        APIVersion2,
+ 			AllowNondistributableArtifacts: ana,
+ 			TrimHostname:                   true,
+ 			TLSConfig:                      tlsConfig,
+@@ -70,7 +110,7 @@ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndp
+ 				Scheme: "http",
+ 				Host:   hostname,
+ 			},
+-			Version: APIVersion2,
++			Version:                        APIVersion2,
+ 			AllowNondistributableArtifacts: ana,
+ 			TrimHostname:                   true,
+ 			// used to check if supposed to be secure via InsecureSkipVerify
+diff --git a/components/engine/registry/service_v2_test.go b/components/engine/registry/service_v2_test.go
+new file mode 100644
+index 0000000..02c954b
+--- /dev/null
++++ b/components/engine/registry/service_v2_test.go
+@@ -0,0 +1,104 @@
++package registry
++
++import (
++	"testing"
++	"gotest.tools/assert"
++
++	registrytypes "github.com/docker/docker/api/types/registry"
++)
++
++func TestLookupV2Endpoints(t *testing.T) {
++	// case 1: doesn't call r.Prepare(), expect use default
++	r := registrytypes.Registry{
++		Pattern: "hello.com",
++		Mirrors: []registrytypes.Endpoint{
++			{
++				Address:            "http://docker.com",
++				InsecureSkipVerify: false,
++			},
++		},
++	}
++
++	s, err := NewService(ServiceOptions{
++		Registries: registrytypes.Registries{
++			r,
++		},
++	})
++
++	_, err = s.lookupV2Endpoints("hello.com")
++	assert.NilError(t, err)
++
++	// case 2: everything is ok
++	err = r.Prepare()
++	assert.NilError(t, err)
++
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	_, err = s.lookupV2Endpoints("hello.com")
++	assert.NilError(t, err)
++
++	// case 3: Mirror Address is invalid, without http:// or https:// prefix
++	r = registrytypes.Registry{
++		Pattern: "hello.com",
++		Mirrors: []registrytypes.Endpoint{
++			{
++				Address:            "docker.com",
++				InsecureSkipVerify: false,
++			},
++		},
++	}
++
++	err = r.Prepare()
++	assert.ErrorContains(t, err, "address must start with")
++
++	// case 4: invalid pattern
++	r = registrytypes.Registry{
++		Pattern: "`[@1xxfdsaf",
++		Mirrors: []registrytypes.Endpoint{
++			{
++				Address:            "https://docker.com",
++				InsecureSkipVerify: false,
++			},
++		},
++	}
++
++	err = r.Prepare()
++	assert.ErrorContains(t, err, "invalid pattern")
++
++	// case 5: r.Mirrors is empty, expect error
++	r = registrytypes.Registry{
++		Pattern: "hello.com",
++		Mirrors: []registrytypes.Endpoint{},
++	}
++
++	err = r.Prepare()
++	assert.ErrorContains(t, err, "without mirror endpoints")
++
++	// case 6: lookupV2Endpoints doesn't match to registry pattern, expect no error, return default endpoints
++	r = registrytypes.Registry{
++		Pattern: "hello.com",
++		Mirrors: []registrytypes.Endpoint{
++			{
++				Address:            "http://docker.com",
++				InsecureSkipVerify: false,
++			},
++		},
++	}
++
++	err = r.Prepare()
++	assert.NilError(t, err)
++
++	s, err = NewService(ServiceOptions{
++		Registries: registrytypes.Registries{
++			r,
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	_, err = s.lookupV2Endpoints("example.com")
++	assert.NilError(t, err)
++}
+-- 
+1.8.3.1
+
