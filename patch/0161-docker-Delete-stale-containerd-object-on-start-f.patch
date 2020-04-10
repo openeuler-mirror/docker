@@ -1,0 +1,56 @@
+From 6fe2bd73981651b275e508dd2c4806b20853684b Mon Sep 17 00:00:00 2001
+From: Grooooot <isula@huawei.com>
+Date: Tue, 17 Mar 2020 10:34:59 +0800
+Subject: [PATCH] docker: Delete stale containerd object on start failure
+
+containerd has two objects with regard to containers.
+This is a "container" object which is metadata and a "task" which is
+manging the actual runtime state.
+
+When docker starts a container, it creates both the container metadata
+and the task at the same time. So when a container exists, docker deletes
+both of these objects as well.
+
+This ensures that if, on start, when we go to create the container metadata object
+in containerd, if there is an error due to a name conflict taht we go
+ahead and clean that up and try again.
+
+backport from upstream: https://github.com/moby/moby/pull/38364
+
+Signed-off-by: Grooooot <isula@huawei.com>
+---
+ components/engine/daemon/start.go | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/start.go b/components/engine/daemon/start.go
+index 8ff636b..07bffaa 100644
+--- a/components/engine/daemon/start.go
++++ b/components/engine/daemon/start.go
+@@ -185,9 +185,22 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint
+ 		return err
+ 	}
+ 
+-	err = daemon.containerd.Create(context.Background(), container.ID, spec, createOptions)
++	ctx := context.TODO()
++
++	err = daemon.containerd.Create(ctx, container.ID, spec, createOptions)
+ 	if err != nil {
+-		return translateContainerdStartErr(container.Path, container.SetExitCode, err)
++		if errdefs.IsConflict(err) {
++			logrus.WithError(err).WithField("container", container.ID).Error("Container not cleaned up from containerd from previous run")
++			// best effort to clean up old container object
++			daemon.containerd.DeleteTask(ctx, container.ID)
++			if err := daemon.containerd.Delete(ctx, container.ID); err != nil && !errdefs.IsNotFound(err) {
++				logrus.WithError(err).WithField("container", container.ID).Error("Error cleaning up stale containerd container object")
++			}
++			err = daemon.containerd.Create(ctx, container.ID, spec, createOptions)
++		}
++		if err != nil {
++			return translateContainerdStartErr(container.Path, container.SetExitCode, err)
++		}
+ 	}
+ 
+ 	// TODO(mlaventure): we need to specify checkpoint options here
+-- 
+1.8.3.1
+
