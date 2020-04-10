@@ -1,0 +1,36 @@
+From 3f285224ade14c9d64dfc81cf9b5d969343a641e Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Wed, 8 Apr 2020 19:49:38 +0800
+Subject: [PATCH] docker: stat process exit file when kill process directly
+
+reason: stat process exit file when kill process directly
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/daemon/container_operations_unix.go | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/components/engine/daemon/container_operations_unix.go b/components/engine/daemon/container_operations_unix.go
+index 2cc2b2e3..df2f3261 100644
+--- a/components/engine/daemon/container_operations_unix.go
++++ b/components/engine/daemon/container_operations_unix.go
+@@ -346,6 +346,16 @@ func killProcessDirectly(cntr *container.Container) error {
+ 		// Ensure that we don't kill ourselves
+ 		if pid := cntr.GetPID(); pid != 0 {
+ 			logrus.Infof("Container %s failed to exit within 10 seconds of kill - trying direct SIGKILL", stringid.TruncateID(cntr.ID))
++			pattern := fmt.Sprintf("/var/run/docker/containerd/exit/moby/%s.%d.*", cntr.ID, pid)
++			efiles, err := filepath.Glob(pattern)
++			if err != nil {
++				logrus.Warnf("Match exit file with pattern %q failed: %s", pattern, err.Error())
++			}
++			if len(efiles) != 0 {
++				logrus.Infof("Find process exit files with pattern %q: %+v, skip force kill because the process is exit already", pattern, efiles)
++				return errNoSuchProcess{pid, 9}
++			}
++
+ 			if err := unix.Kill(pid, 9); err != nil {
+ 				if err != unix.ESRCH {
+ 					return err
+-- 
+2.19.1
+
