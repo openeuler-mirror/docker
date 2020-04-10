@@ -1,0 +1,27 @@
+From 0fe29ca9d45ddcb36f009a8da5f858f49a8e2844 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Wed, 8 Apr 2020 17:32:03 +0800
+Subject: [PATCH] docker: delete event is not need to access processEvent
+
+reason: delete event is not need to access processEvent, continue it
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/libcontainerd/client_daemon.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/engine/libcontainerd/client_daemon.go b/components/engine/libcontainerd/client_daemon.go
+index 858d6429..05c439c5 100755
+--- a/components/engine/libcontainerd/client_daemon.go
++++ b/components/engine/libcontainerd/client_daemon.go
+@@ -895,6 +895,7 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 					"ExitStatus": t.ExitStatus,
+ 					"ExitedAt": t.ExitedAt,
+ 				}).Infof("event")
++				continue
+ 			default:
+ 				c.logger.WithFields(logrus.Fields{
+ 					"topic": ev.Topic,
+-- 
+2.19.1
+
