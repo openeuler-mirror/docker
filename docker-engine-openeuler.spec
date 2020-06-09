@@ -1,11 +1,17 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 104
+Release: 105
 Summary: The open-source application container engine
 Group: Tools/Docker
 
 License: ASL 2.0
-Source: %{name}.tar.gz
+Source0: docker-ce-18.09.0.tar.gz
+Source1: patch.tar.gz
+Source2: apply-patches
+Source3: git-commit
+Source4: series.conf
+Source5: VERSION-openeuler
+Source6: gen-commit.sh
 
 URL: https://mobyproject.org
 
@@ -38,17 +44,21 @@ for deploying and scaling web apps, databases, and backend services without
 depending on a particular stack or provider.
 
 %prep
-%autosetup -c -n %{name}
+cp %{SOURCE0} .
+cp %{SOURCE1} .
+cp %{SOURCE2} .
+cp %{SOURCE3} .
+cp %{SOURCE4} .
+cp %{SOURCE5} .
 
 %build
 
-./apply-patches
+sh ./apply-patches
 
 # build docker engine
 WORKDIR=$(pwd)
-GITCOMMIT=$(git rev-parse --short HEAD)
 export VERSION=$(cat VERSION)
-export DOCKER_GITCOMMIT=${GITCOMMIT}
+export DOCKER_GITCOMMIT=$(cat git-commit | head -c 7)
 export AUTO_GOPATH=1
 export DOCKER_BUILDTAGS="pkcs11 seccomp selinux"
 cd ${WORKDIR}/components/engine

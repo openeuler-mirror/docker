@@ -12,6 +12,9 @@ cwd=$PWD
 src=$cwd/$pkg
 
 tar -xzvf $pkg.tar.gz
+if [ ! -d patch ];then
+    tar -xzf patch.tar.gz
+fi
 
 cd $src
 git init
@@ -38,6 +41,8 @@ else
     cp -rf $src/* .
     cp -rf VERSION-openeuler $cwd/components/cli/
     cp -rf VERSION-openeuler $cwd/components/engine/
+    cp -rf git-commit $cwd/components/cli/
+    cp -rf git-commit $cwd/components/engine/
 fi
 mv $src/.git $src/git
 
