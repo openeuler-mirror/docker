@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 107
+Release: 108
 Summary: The open-source application container engine
 Group: Tools/Docker
 
