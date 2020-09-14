@@ -1,11 +1,11 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 105
+Release: 106
 Summary: The open-source application container engine
 Group: Tools/Docker
 
 License: ASL 2.0
-Source0: docker-ce-18.09.0.tar.gz
+Source0: https://github.com/docker/docker-ce/archive/v18.09.0.tar.gz
 Source1: patch.tar.gz
 Source2: apply-patches
 Source3: git-commit
