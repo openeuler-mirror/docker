@@ -1,0 +1,27 @@
+From e7dd426dc3d962eae0e934dcb8fe4d805f8ea4ca Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Wed, 16 Sep 2020 22:40:49 -0400
+Subject: [PATCH] fix docker load files leak
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/daemon/graphdriver/devmapper/deviceset.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index f5c0b04..ff90c44 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -2285,6 +2285,9 @@ func (devices *DeviceSet) unmountAndDeactivateAll(dir string) {
+ 		// and the device will be released when that container dies.
+ 		if err := unix.Unmount(fullname, unix.MNT_DETACH); err != nil && err != unix.EINVAL {
+ 			logger.Warnf("Shutdown unmounting %s, error: %s", fullname, err)
++		} else if err == nil {
++			logger.Debugf("Remove %s", fullname)
++			os.RemoveAll(fullname)
+ 		}
+ 
+ 		if devInfo, err := devices.lookupDevice(name); err != nil {
+-- 
+2.19.1
+
