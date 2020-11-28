@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 105
+Release: 106
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -210,3 +210,18 @@ fi
 %endif
 
 %changelog
+* Fri Dec 27 2020 liuzekun<liuzekun@huawei.com> - 18.09.106
+- Type:bugfix
+- ID:NA
+- CVE:NA
+- SUG:restart
+- DESC:
+1.add more messages for ops when device not found
+2.do not add "-w" to LDFLAG
+3.add files in proc for mask
+4.fix docker load files leak
+5.do not sync if BYPAAS_SYNC is false
+6.fix panic on single-character volumes
+7.mask /proc/pin_memory
+8.fix CVE-2020-13401
+9.fix stats memory usage display error
