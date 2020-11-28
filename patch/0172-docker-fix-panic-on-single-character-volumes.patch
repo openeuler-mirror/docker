@@ -1,0 +1,27 @@
+From 0a2c746c0d560d18502f84078d233166934e9eb9 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Wed, 11 Nov 2020 23:47:30 -0500
+Subject: [PATCH] fix panic on single-character volumes
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/cli/cli/compose/loader/volume.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/cli/cli/compose/loader/volume.go b/components/cli/cli/compose/loader/volume.go
+index 9c2792e0..f043f4aa 100644
+--- a/components/cli/cli/compose/loader/volume.go
++++ b/components/cli/cli/compose/loader/volume.go
+@@ -111,6 +111,9 @@ func isFilePath(source string) bool {
+ 	case '.', '/', '~':
+ 		return true
+ 	}
++	if len([]rune(source)) == 1 {
++		return false
++	}
+ 
+ 	// windows named pipes
+ 	if strings.HasPrefix(source, `\\`) {
+-- 
+2.19.1
+
