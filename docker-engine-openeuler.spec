@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 101
+Release: 102
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -200,3 +200,23 @@ fi
 %endif
 
 %changelog
+* Fri Dec 27 2020 liuzekun<liuzekun@huawei.com> - 18.09.0-102
+- Type:bugfix
+- ID:NA
+- CVE:NA
+- SUG:restart
+- DESC:
+1.delete stale containerd object on start failure
+2.remove redundant word item
+3.delete event is not need to process
+4.stat process exit file when kill process dire
+5.sync cli vendor
+6.fix CVE-2020-13401
+7.do not add w to LDFLAGS
+8.add files in proc for mask
+9.fix docker load files leak
+10.do not sync if BYPAAS_SYNC is false
+11.fix panic on single character volumes
+12.fix stats memory usage display error
+13.add more messages for ops when device not found
+14.mask proc pin_memory
