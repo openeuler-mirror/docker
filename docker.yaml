@@ -1,4 +1,4 @@
 version_control: github
-src_repo: docker
+src_repo: docker/docker-ce
 tag_prefix: ^v
 seperator: .
