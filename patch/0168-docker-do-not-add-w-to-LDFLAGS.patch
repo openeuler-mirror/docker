@@ -1,0 +1,79 @@
+From b23e7a179e68f194516b542bea375c44122e1037 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Tue, 11 Aug 2020 08:00:12 +0800
+Subject: [PATCH] docker: do not add "-w" to LDFLAG
+
+reason: for gdb debug, do not add "-w" to LDFLAGS
+
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/cli/scripts/build/.variables | 1 -
+ components/cli/scripts/build/dynbinary  | 5 ++++-
+ components/engine/hack/make.sh          | 5 -----
+ components/engine/hack/make/.binary     | 5 ++++-
+ 4 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/components/cli/scripts/build/.variables b/components/cli/scripts/build/.variables
+index a23e379..7b78e62 100755
+--- a/components/cli/scripts/build/.variables
++++ b/components/cli/scripts/build/.variables
+@@ -13,7 +13,6 @@ if test -n "${PLATFORM}"; then
+ fi
+ 
+ export LDFLAGS="\
+-    -w \
+     ${PLATFORM_LDFLAGS} \
+     -X \"github.com/docker/cli/cli.GitCommit=${GITCOMMIT}\" \
+     -X \"github.com/docker/cli/cli.BuildTime=${BUILDTIME}\" \
+diff --git a/components/cli/scripts/build/dynbinary b/components/cli/scripts/build/dynbinary
+index 2442166..40941bb 100755
+--- a/components/cli/scripts/build/dynbinary
++++ b/components/cli/scripts/build/dynbinary
+@@ -13,7 +13,10 @@ export CGO_ENABLED=1
+ BEP_DIR=/tmp/docker-build-bep
+ BEP_FLAGS="-tmpdir=$BEP_DIR"
+ mkdir -p $BEP_DIR
++GC_FLAGS="-gcflags=-trimpath=$GOPATH"
++ASM_FLAGS="-asmflags=-trimpath=$GOPATH"
+ 
+-go build -o "${TARGET}" -tags pkcs11 --ldflags " -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
++set -x
++go build $GC_FLAGS $ASM_FLAGS -o "${TARGET}" -tags pkcs11 --ldflags " -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
+ 
+ ln -sf "$(basename "${TARGET}")" build/docker
+diff --git a/components/engine/hack/make.sh b/components/engine/hack/make.sh
+index f4a51e7..d24a7b7 100755
+--- a/components/engine/hack/make.sh
++++ b/components/engine/hack/make.sh
+@@ -137,12 +137,7 @@ if \
+ fi
+ 
+ # Use these flags when compiling the tests and final binary
+-
+ IAMSTATIC='true'
+-if [ -z "$DOCKER_DEBUG" ]; then
+-	LDFLAGS='-w'
+-fi
+-
+ LDFLAGS_STATIC=''
+ EXTLDFLAGS_STATIC='-static'
+ # ORIG_BUILDFLAGS is necessary for the cross target which cannot always build
+diff --git a/components/engine/hack/make/.binary b/components/engine/hack/make/.binary
+index f76b6f7..35bb836 100755
+--- a/components/engine/hack/make/.binary
++++ b/components/engine/hack/make/.binary
+@@ -63,7 +63,10 @@ echo "Building: $DEST/$BINARY_FULLNAME"
+ BEP_DIR=/tmp/dockerd-build-bep
+ BEP_FLAGS="-tmpdir=$BEP_DIR"
+ mkdir -p $BEP_DIR
+-go build \
++GC_FLAGS="-gcflags=-trimpath=$GOPATH"
++ASM_FLAGS="-asmflags=-trimpath=$GOPATH"
++set -x
++go build $GC_FLAGS $ASM_FLAGS \
+ 	-o "$DEST/$BINARY_FULLNAME" \
+ 	"${BUILDFLAGS[@]}" \
+ 	-ldflags "
+-- 
+1.8.3.1
+

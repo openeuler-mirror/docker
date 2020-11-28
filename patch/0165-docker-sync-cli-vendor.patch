@@ -1,0 +1,38 @@
+From c4ead7f7e914244e43eab849cf68c34c3460b41c Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 14 May 2020 22:57:37 +0800
+Subject: [PATCH] docker: sync cli vendor
+
+Change-Id: I9dbfd3e2c918d47806abdcdc27bf709c0e297780
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../docker/docker/builder/remotecontext/git/gitutils.go     | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/components/cli/vendor/github.com/docker/docker/builder/remotecontext/git/gitutils.go b/components/cli/vendor/github.com/docker/docker/builder/remotecontext/git/gitutils.go
+index 77a45beff3..a9079153e0 100644
+--- a/components/cli/vendor/github.com/docker/docker/builder/remotecontext/git/gitutils.go
++++ b/components/cli/vendor/github.com/docker/docker/builder/remotecontext/git/gitutils.go
+@@ -102,6 +102,10 @@ func parseRemoteURL(remoteURL string) (gitRepo, error) {
+ 		u.Fragment = ""
+ 		repo.remote = u.String()
+ 	}
++
++	if strings.HasPrefix(repo.ref, "-") {
++		return gitRepo{}, errors.Errorf("invalid refspec: %s", repo.ref)
++	}
+ 	return repo, nil
+ }
+ 
+@@ -124,7 +128,7 @@ func fetchArgs(remoteURL string, ref string) []string {
+ 		args = append(args, "--depth", "1")
+ 	}
+ 
+-	return append(args, "origin", ref)
++	return append(args, "origin", "--", ref)
+ }
+ 
+ // Check if a given git URL supports a shallow git clone,
+-- 
+2.17.1
+

@@ -1,0 +1,42 @@
+From c9db33aaad779afff04db8beb5b6d7e7e512a66d Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Mon, 24 Aug 2020 09:42:21 -0400
+Subject: [PATCH] docker: add files in proc for mask
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/oci/defaults.go | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index cd4985f5..ec748a6d 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -65,7 +65,7 @@ func DefaultLinuxSpec() specs.Spec {
+ 				Effective:   defaultCapabilities(),
+ 			},
+ 		},
+-		Root: &specs.Root{},
++		Root:  &specs.Root{},
+ 		Hooks: &specs.Hooks{},
+ 	}
+ 	s.Mounts = []specs.Mount{
+@@ -128,9 +128,15 @@ func DefaultLinuxSpec() specs.Spec {
+ 			"/proc/keys",
+ 			"/proc/latency_stats",
+ 			"/proc/livepatch",
++			"/proc/lru_info",
++			"/proc/lru_info_file",
+ 			"/proc/memstat",
+ 			"/proc/net_namespace",
+ 			"/proc/oom_extend",
++			"/proc/pagealloc_statistics",
++			"/proc/pagealloc_bt",
++			"/proc/slaballoc_bt",
++			"/proc/slaballoc_module",
+ 			"/proc/sched_debug",
+ 			"/proc/scsi",
+ 			"/proc/sig_catch",
+-- 
+2.19.1
+
