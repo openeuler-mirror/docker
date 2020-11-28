@@ -1,0 +1,28 @@
+From bbc6fce3870ff7f43c87efe13247bb185817aa67 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Wed, 14 Oct 2020 04:36:56 -0400
+Subject: [PATCH] do not sync if BYPAAS_SYNC is false
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/pkg/devicemapper/devmapper.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/pkg/devicemapper/devmapper.go b/components/engine/pkg/devicemapper/devmapper.go
+index 06ddc3e9..a5c30cb3 100644
+--- a/components/engine/pkg/devicemapper/devmapper.go
++++ b/components/engine/pkg/devicemapper/devmapper.go
+@@ -477,7 +477,9 @@ func BlockDeviceDiscard(path string) error {
+ 
+ 	// Without this sometimes the remove of the device that happens after
+ 	// discard fails with EBUSY.
+-	unix.Sync()
++	if os.Getenv("DOCKER_BYPASS_SYNC_SYSCALL") != "false" {
++		unix.Sync()
++	}
+ 
+ 	return nil
+ }
+-- 
+2.19.1
+
