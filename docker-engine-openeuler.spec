@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 102
+Release: 103
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -200,7 +200,13 @@ fi
 %endif
 
 %changelog
-* Fri Dec 27 2020 liuzekun<liuzekun@huawei.com> - 18.09.0-102
+* Thu Dec 3 2020 xiadanni<xiadanni1@huawei.com> - 18.09.0-103
+- Type:bugfix
+- ID:NA
+- SUG:restart
+- DESC:containerd fix CVE-2020-15257
+
+* Fri Nov 27 2020 liuzekun<liuzekun@huawei.com> - 18.09.0-102
 - Type:bugfix
 - ID:NA
 - CVE:NA
