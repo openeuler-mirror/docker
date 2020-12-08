@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 103
+Release: 104
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -200,6 +200,12 @@ fi
 %endif
 
 %changelog
+* Tue Dec 8 2020 xiadanni<xiadanni1@huawei.com> - 18.09.0-104
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:runc don't deny all devices when update cgroup resource
+
 * Thu Dec 3 2020 xiadanni<xiadanni1@huawei.com> - 18.09.0-103
 - Type:bugfix
 - ID:NA
