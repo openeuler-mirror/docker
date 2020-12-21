@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 109
+Release: 110
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -223,3 +223,10 @@ fi
 5.do not sync if BYPAAS_SYNC is false
 6.fix panic on single-character volumes
 7.mask /proc/pin_memory
+
+* Mon Dec 21 2020 fengshaobao<shaobao.feng@huawei.com> - 18.09.110
+- Type:bugfix
+- ID:NA
+- CVE:NA
+- SUG:restart
+- DESC: append the image hostname itself as an endpoint even the registry mirror matched.
