@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 110
+Release: 111
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -210,7 +210,21 @@ fi
 %endif
 
 %changelog
-* Fri Dec 27 2020 liuzekun<liuzekun@huawei.com> - 18.09.109
+* Mon Jan 4 2021 yangyanchao<yangyanchao6@huawei.com> - 18.09.111
+- Type:requirement
+- ID:NA
+- CVE:NA
+- SUG:restart
+- docker:components:add config files for riscv
+
+* Mon Dec 21 2020 fengshaobao<shaobao.feng@huawei.com> - 18.09.110
+- Type:bugfix
+- ID:NA
+- CVE:NA
+- SUG:restart
+- DESC: append the image hostname itself as an endpoint even the registry mirror matched.
+
+* Fri Nov 27 2020 liuzekun<liuzekun@huawei.com> - 18.09.109
 - Type:bugfix
 - ID:NA
 - CVE:NA
@@ -223,10 +237,3 @@ fi
 5.do not sync if BYPAAS_SYNC is false
 6.fix panic on single-character volumes
 7.mask /proc/pin_memory
-
-* Mon Dec 21 2020 fengshaobao<shaobao.feng@huawei.com> - 18.09.110
-- Type:bugfix
-- ID:NA
-- CVE:NA
-- SUG:restart
-- DESC: append the image hostname itself as an endpoint even the registry mirror matched.
