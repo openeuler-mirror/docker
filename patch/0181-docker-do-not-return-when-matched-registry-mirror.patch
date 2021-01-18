@@ -1,0 +1,137 @@
+From 8cc3f33020152d51d38927593ba49ad3dfacf62e Mon Sep 17 00:00:00 2001
+From: shaobao.feng <shaobao.feng@huawei.com>
+Date: Mon, 7 Dec 2020 15:30:11 +0800
+Subject: [PATCH] docker: do not return when matched registry mirror
+
+Change-Id: I5317b91b60293e1f4c50f5a327790c5509537f9b
+reason: append hostname itself to make sure the hostname itself will be tried.
+---
+ components/engine/registry/service_v2.go | 86 +++++++++++-------------
+ 1 file changed, 41 insertions(+), 45 deletions(-)
+
+diff --git a/components/engine/registry/service_v2.go b/components/engine/registry/service_v2.go
+index adeb10c550..df66cd7451 100644
+--- a/components/engine/registry/service_v2.go
++++ b/components/engine/registry/service_v2.go
+@@ -19,8 +19,7 @@ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndp
+ 		if reg != nil {
+ 			var regEndpoints []registrytypes.Endpoint = reg.Mirrors
+ 
+-			lastIndex := len(regEndpoints) - 1
+-			for i, regEP := range regEndpoints {
++			for _, regEP := range regEndpoints {
+ 				official := regEP.Address == registrytypes.DefaultEndpoint.Address
+ 				regURL := regEP.GetURL()
+ 
+@@ -41,49 +40,48 @@ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndp
+ 					TLSConfig:    tlsConfig,
+ 					Prefix:       hostname,
+ 					// the last endpoint is not considered a mirror
+-					Mirror: i != lastIndex,
++					Mirror: true,
+ 				})
+ 			}
+-			return endpoints, nil
++			// don't return here, otherwise the hostname itself will not be appended to the endpoints,
++			// and the hostname itself will not be tried, which is not a desired action.
+ 		}
+-	} else {
++	}
++	if hostname == DefaultNamespace || hostname == IndexHostname {
+ 		tlsConfig = tlsconfig.ServerDefault()
+-		if hostname == DefaultNamespace || hostname == IndexHostname {
+-			// v2 mirrors
+-			for _, mirror := range s.config.Mirrors {
+-				if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
+-					mirror = "https://" + mirror
+-				}
+-				mirrorURL, err := url.Parse(mirror)
+-				if err != nil {
+-					return nil, err
+-				}
+-				mirrorTLSConfig, err := s.tlsConfigForMirror(mirrorURL)
+-				if err != nil {
+-					return nil, err
+-				}
+-				endpoints = append(endpoints, APIEndpoint{
+-					URL: mirrorURL,
+-					// guess mirrors are v2
+-					Version:      APIVersion2,
+-					Mirror:       true,
+-					TrimHostname: true,
+-					TLSConfig:    mirrorTLSConfig,
+-				})
++		// v2 mirrors
++		for _, mirror := range s.config.Mirrors {
++			if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
++				mirror = "https://" + mirror
++			}
++			mirrorURL, err := url.Parse(mirror)
++			if err != nil {
++				return nil, err
++			}
++			mirrorTLSConfig, err := s.tlsConfigForMirror(mirrorURL)
++			if err != nil {
++				return nil, err
+ 			}
+-			// v2 registry
+ 			endpoints = append(endpoints, APIEndpoint{
+-				URL:          DefaultV2Registry,
++				URL: mirrorURL,
++				// guess mirrors are v2
+ 				Version:      APIVersion2,
+-				Official:     true,
++				Mirror:       true,
+ 				TrimHostname: true,
+-				TLSConfig:    tlsConfig,
++				TLSConfig:    mirrorTLSConfig,
+ 			})
+-
+-			return endpoints, nil
+ 		}
+-	}
++		// v2 registry
++		endpoints = append(endpoints, APIEndpoint{
++			URL:          DefaultV2Registry,
++			Version:      APIVersion2,
++			Official:     true,
++			TrimHostname: true,
++			TLSConfig:    tlsConfig,
++		})
+ 
++		return endpoints, nil
++	}
+ 	ana := allowNondistributableArtifacts(s.config, hostname)
+ 
+ 	tlsConfig, err = s.tlsConfig(hostname)
+@@ -91,18 +89,16 @@ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndp
+ 		return nil, err
+ 	}
+ 
+-	endpoints = []APIEndpoint{
+-		{
+-			URL: &url.URL{
+-				Scheme: "https",
+-				Host:   hostname,
+-			},
+-			Version:                        APIVersion2,
+-			AllowNondistributableArtifacts: ana,
+-			TrimHostname:                   true,
+-			TLSConfig:                      tlsConfig,
++	endpoints = append(endpoints, APIEndpoint{
++		URL: &url.URL{
++			Scheme: "https",
++			Host:   hostname,
+ 		},
+-	}
++		Version:                        APIVersion2,
++		AllowNondistributableArtifacts: ana,
++		TrimHostname:                   true,
++		TLSConfig:                      tlsConfig,
++	})
+ 
+ 	if tlsConfig.InsecureSkipVerify {
+ 		endpoints = append(endpoints, APIEndpoint{
+-- 
+2.17.1
+
