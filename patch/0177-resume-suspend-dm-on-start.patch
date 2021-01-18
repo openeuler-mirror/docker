@@ -1,0 +1,82 @@
+From 37e3e3dfb31f30b2599d05f021671f6e682f37d6 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 9 Dec 2020 17:37:02 +0800
+Subject: [PATCH] resume suspend dm on start
+
+Change-Id: Ibe215c80aa62b4d4b464749cc6e995d2e0e845af
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/cmd/dockerd/daemon.go | 43 +++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 0b3fa0e037..dbf37f3338 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -6,6 +6,7 @@ import (
+ 	"fmt"
+ 	"io/ioutil"
+ 	"os"
++	"os/exec"
+ 	"path/filepath"
+ 	"runtime"
+ 	"strings"
+@@ -72,6 +73,45 @@ func NewDaemonCli() *DaemonCli {
+ 	return &DaemonCli{}
+ }
+ 
++func resumeDM() {
++	c := make(chan struct{})
++	go func() {
++		defer close(c)
++		out, err := exec.Command("dmsetup", "info", "-c", "--sort", "minor", "--noheadings", "--separator", ",", "-o", "attr,name").CombinedOutput()
++		if err != nil {
++			logrus.Errorf("resume-dm dmsetup info failed: %v", err)
++			return
++		}
++
++		args := []string{"resume"}
++		for _, line := range strings.Split(string(out), "\n") {
++			aa := strings.Split(line, ",")
++			if len(aa) != 2 || !strings.Contains(aa[0], "s") || strings.Index(aa[1], "docker-") != 0 {
++				continue
++			}
++			args = append(args, aa[1])
++		}
++		if len(args) == 1 {
++			return
++		}
++
++		logrus.Infof("resume-dm start resume suspended dm %v", args)
++		_, err = exec.Command("dmsetup", args...).CombinedOutput()
++		if err != nil {
++			logrus.Errorf("resume-dm %s failed: %v", err)
++			return
++		}
++		logrus.Infof("resume-dm finished resume suspended dm")
++	}()
++	select {
++	case <-c:
++		return
++	case <-time.After(10*time.Second):
++		logrus.Warnf("resume-dm timeout, continue anyway.")
++		return
++	}
++}
++
+ func cleanupLocalDB(db string) {
+ 	_, err := os.Stat(db)
+ 	if err == nil {
+@@ -150,6 +190,9 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
+ 	})
+ 
+ 	system.InitLCOW(cli.Config.Experimental)
++	if cli.Config.GraphDriver == "devicemapper" {
++		resumeDM()
++	}
+ 
+ 	if err := setDefaultUmask(); err != nil {
+ 		return fmt.Errorf("Failed to set umask: %v", err)
+-- 
+2.17.1
+
