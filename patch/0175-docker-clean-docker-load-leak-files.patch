@@ -1,0 +1,85 @@
+From a74f1c3e4ab7c6f4a043904a8e68edf04864d98a Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 2 Dec 2020 17:20:50 +0800
+Subject: [PATCH] docker: clean docker load leak files
+
+Change-Id: I09b66e204f655a9fef660bb85619f5711fb5700b
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/daemon.go            | 39 +++++++++++++++++++
+ .../daemon/graphdriver/devmapper/deviceset.go |  3 +-
+ 2 files changed, 41 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 3ff5691257..1acd355a15 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -613,11 +613,50 @@ func (daemon *Daemon) restore() error {
+ 
+ 	group.Wait()
+ 
++	daemon.cleanExit()
+ 	logrus.Info("Loading containers: done.")
+ 
+ 	return nil
+ }
+ 
++func (daemon *Daemon) cleanExit() {
++	mnt := filepath.Join(daemon.root, "devicemapper/mnt")
++	if dir, err := ioutil.ReadDir(mnt); err == nil {
++		for _, f := range dir {
++			fname := filepath.Join(mnt, f.Name())
++			data, err := ioutil.ReadFile(fname)
++			if err != nil {
++				continue
++			}
++			if string(data) == "exit" {
++				logrus.Infof("cleanExit remove mnt %s", fname)
++				os.Remove(fname)
++			}
++		}
++	}
++
++	tmp := filepath.Join(daemon.root, "image/devicemapper/layerdb/tmp")
++	if dir, err := ioutil.ReadDir(tmp); err == nil {
++		for _, f := range dir {
++			if strings.Contains(f.Name(), "write-set-") {
++				fname := filepath.Join(tmp, f.Name())
++				logrus.Infof("cleanExit remove layerdb %s", fname)
++				os.RemoveAll(fname)
++			}
++		}
++	}
++
++	if dir, err := ioutil.ReadDir(os.Getenv("TMPDIR")); err == nil {
++		for _, f := range dir {
++			if strings.Contains(f.Name(), "docker-import-") {
++				fname := filepath.Join(os.Getenv("TMPDIR"), f.Name())
++				logrus.Infof("cleanExit remove tmpdir %s", fname)
++				os.RemoveAll(fname)
++			}
++		}
++	}
++}
++
+ // RestartSwarmContainers restarts any autostart container which has a
+ // swarm endpoint.
+ func (daemon *Daemon) RestartSwarmContainers() {
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index ff90c44ce3..750f2b13f8 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -2286,8 +2286,9 @@ func (devices *DeviceSet) unmountAndDeactivateAll(dir string) {
+ 		if err := unix.Unmount(fullname, unix.MNT_DETACH); err != nil && err != unix.EINVAL {
+ 			logger.Warnf("Shutdown unmounting %s, error: %s", fullname, err)
+ 		} else if err == nil {
+-			logger.Debugf("Remove %s", fullname)
++			logger.Infof("cleanExit prepare %s", fullname)
+ 			os.RemoveAll(fullname)
++			ioutil.WriteFile(fullname, []byte("exit"), 0600)
+ 		}
+ 
+ 		if devInfo, err := devices.lookupDevice(name); err != nil {
+-- 
+2.17.1
+

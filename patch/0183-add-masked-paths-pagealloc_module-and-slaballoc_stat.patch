@@ -1,0 +1,29 @@
+From fada5f66fcc555d706603dd3c7832e78e9955501 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Thu, 31 Dec 2020 03:07:42 -0500
+Subject: add masked paths pagealloc_module and slaballoc_statistics
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/oci/defaults.go | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/components/engine/oci/defaults.go b/components/engine/oci/defaults.go
+index e763cb75..ff027d89 100644
+--- a/components/engine/oci/defaults.go
++++ b/components/engine/oci/defaults.go
+@@ -135,9 +135,11 @@ func DefaultLinuxSpec() specs.Spec {
+ 			"/proc/oom_extend",
+ 			"/proc/pagealloc_statistics",
+ 			"/proc/pagealloc_bt",
++			"/proc/pagealloc_module",
+ 			"/proc/pin_memory",
+ 			"/proc/slaballoc_bt",
+ 			"/proc/slaballoc_module",
++			"/proc/slaballoc_statistics",
+ 			"/proc/sched_debug",
+ 			"/proc/scsi",
+ 			"/proc/sig_catch",
+-- 
+2.19.1
+

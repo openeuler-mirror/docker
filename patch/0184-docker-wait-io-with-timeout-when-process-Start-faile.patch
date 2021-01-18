@@ -1,0 +1,48 @@
+From ef64f4dd5d532b550bb68f60e6373e139fdf5382 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Fri, 15 Jan 2021 11:23:04 +0800
+Subject: [PATCH] docker: wait io with timeout when process Start failed
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ .../vendor/github.com/containerd/containerd/process.go  | 17 ++++++++++++++---
+ 1 file changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/containerd/containerd/process.go b/components/engine/vendor/github.com/containerd/containerd/process.go
+index ff7d838..4d0dca9 100644
+--- a/components/engine/vendor/github.com/containerd/containerd/process.go
++++ b/components/engine/vendor/github.com/containerd/containerd/process.go
+@@ -26,6 +26,7 @@ import (
+ 	"github.com/containerd/containerd/cio"
+ 	"github.com/containerd/containerd/errdefs"
+ 	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // Process represents a system process
+@@ -111,9 +112,19 @@ func (p *process) Start(ctx context.Context) error {
+ 		ExecID:      p.id,
+ 	})
+ 	if err != nil {
+-		p.io.Cancel()
+-		p.io.Wait()
+-		p.io.Close()
++		done := make(chan struct{})
++		go func() {
++			p.io.Cancel()
++			p.io.Wait()
++			p.io.Close()
++			close(done)
++		}()
++		select {
++		case <-time.After(30 * time.Second):
++			logrus.Warnf("process start failed with error %v, wait io close timeout, some fifo io may be dropped.", err)
++		case <-done:
++			// ok
++		}
+ 		return errdefs.FromGRPC(err)
+ 	}
+ 	p.pid = r.Pid
+-- 
+1.8.3.1
+
