@@ -1,18 +1,16 @@
-From 56c1d6c149b18214a8d01ab3f1738cae4792109a Mon Sep 17 00:00:00 2001
-From: f00231050 <shaobao.feng@huawei.com>
+From 8cc3f33020152d51d38927593ba49ad3dfacf62e Mon Sep 17 00:00:00 2001
+From: shaobao.feng <shaobao.feng@huawei.com>
 Date: Mon, 7 Dec 2020 15:30:11 +0800
 Subject: [PATCH] docker: do not return when matched registry mirror
 
+Change-Id: I5317b91b60293e1f4c50f5a327790c5509537f9b
 reason: append hostname itself to make sure the hostname itself will be tried.
 ---
- components/engine/registry/service_v2.go | 86 +++++++++++++++-----------------
+ components/engine/registry/service_v2.go | 86 +++++++++++-------------
  1 file changed, 41 insertions(+), 45 deletions(-)
- mode change 100644 => 100755 components/engine/registry/service_v2.go
 
 diff --git a/components/engine/registry/service_v2.go b/components/engine/registry/service_v2.go
-old mode 100644
-new mode 100755
-index adeb10c..df66cd7
+index adeb10c550..df66cd7451 100644
 --- a/components/engine/registry/service_v2.go
 +++ b/components/engine/registry/service_v2.go
 @@ -19,8 +19,7 @@ func (s *DefaultService) lookupV2Endpoints(hostname string) (endpoints []APIEndp
@@ -135,5 +133,5 @@ index adeb10c..df66cd7
  	if tlsConfig.InsecureSkipVerify {
  		endpoints = append(endpoints, APIEndpoint{
 -- 
-1.8.3.1
+2.17.1
 

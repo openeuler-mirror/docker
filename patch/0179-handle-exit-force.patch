@@ -1,0 +1,107 @@
+From 66b6e3065b160bd7d480f183156acbe1cb9bf2e0 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 15 Dec 2020 16:05:56 +0800
+Subject: [PATCH] handle exit force
+
+Change-Id: If08483f57b4f04d6c4961c9f588e4d599009eddc
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/monitor.go                |  9 +++++++++
+ components/engine/libcontainerd/client_daemon.go   | 14 ++++++++++++++
+ components/engine/libcontainerd/types.go           |  1 +
+ .../plugin/executor/containerd/containerd.go       |  5 +++++
+ 4 files changed, 29 insertions(+)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index e041bd5c69..1b577c0dae 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -26,6 +26,14 @@ func (daemon *Daemon) setStateCounter(c *container.Container) {
+ 	}
+ }
+ 
++func (daemon *Daemon) IsContainerRunning(id string) bool {
++	c, err := daemon.GetContainer(id)
++	if err != nil {
++		return false
++	}
++	return c.IsRunning()
++}
++
+ // ProcessEvent is called by libcontainerd whenever an event occurs
+ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libcontainerd.EventInfo) error {
+ 	c, err := daemon.GetContainer(id)
+@@ -51,6 +59,7 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 	case libcontainerd.EventExit:
+ 		if int(ei.Pid) == c.Pid {
+ 			c.Lock()
++			logrus.Infof("handle exit event cid=%s pid=%d", c.ID, c.Pid)
+ 			_, _, err := daemon.containerd.DeleteTask(context.Background(), c.ID)
+ 			if err != nil {
+ 				logrus.WithError(err).Warnf("failed to delete container %s from containerd", c.ID)
+diff --git a/components/engine/libcontainerd/client_daemon.go b/components/engine/libcontainerd/client_daemon.go
+index 05c439c540..502796bd25 100755
+--- a/components/engine/libcontainerd/client_daemon.go
++++ b/components/engine/libcontainerd/client_daemon.go
+@@ -517,9 +517,16 @@ func (c *client) DeleteTask(ctx context.Context, containerID string) (uint32, ti
+ 	return status.ExitCode(), status.ExitTime(), nil
+ }
+ 
++func (c *client) deleteForce(ctx context.Context, id string) {
++	if ctr, err := c.client.LoadContainer(ctx, id); err == nil {
++		logrus.Warnf("delete containerd meta id=%s force: error=%v", id, ctr.Delete(ctx))
++	}
++}
++
+ func (c *client) Delete(ctx context.Context, containerID string) error {
+ 	ctr := c.getContainer(containerID)
+ 	if ctr == nil {
++		c.deleteForce(ctx, containerID)
+ 		return errors.WithStack(newNotFoundError("no such container"))
+ 	}
+ 
+@@ -907,6 +914,13 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 			ctr = c.getContainer(ei.ContainerID)
+ 			if ctr == nil {
+ 				c.logger.WithField("container", ei.ContainerID).Warn("unknown container")
++				if et == EventExit && ei.ProcessID == ei.ContainerID && c.backend.IsContainerRunning(ei.ContainerID) {
++					c.logger.WithField("container", ei.ContainerID).Warn("handle exit event force ...")
++					c.eventQ.append(ei.ContainerID, func() {
++						c.logger.WithField("container", ei.ContainerID).Warnf("handle exit event force: error=%v",
++							c.backend.ProcessEvent(ei.ContainerID, et, ei))
++					})
++				}
+ 				continue
+ 			}
+ 
+diff --git a/components/engine/libcontainerd/types.go b/components/engine/libcontainerd/types.go
+index c4de5e674d..0b9df9193b 100644
+--- a/components/engine/libcontainerd/types.go
++++ b/components/engine/libcontainerd/types.go
+@@ -60,6 +60,7 @@ type EventInfo struct {
+ // Backend defines callbacks that the client of the library needs to implement.
+ type Backend interface {
+ 	ProcessEvent(containerID string, event EventType, ei EventInfo) error
++	IsContainerRunning(id string) bool
+ }
+ 
+ // Client provides access to containerd features.
+diff --git a/components/engine/plugin/executor/containerd/containerd.go b/components/engine/plugin/executor/containerd/containerd.go
+index a3401dce79..f75771fe41 100644
+--- a/components/engine/plugin/executor/containerd/containerd.go
++++ b/components/engine/plugin/executor/containerd/containerd.go
+@@ -141,6 +141,11 @@ func (e *Executor) ProcessEvent(id string, et libcontainerd.EventType, ei libcon
+ 	return nil
+ }
+ 
++func (e *Executor) IsContainerRunning(id string) bool {
++	ok, _ := e.IsRunning(id)
++	return ok
++}
++
+ type rio struct {
+ 	cio.IO
+ 
+-- 
+2.17.1
+
