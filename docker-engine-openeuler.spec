@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 104
+Release: 105
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -200,6 +200,21 @@ fi
 %endif
 
 %changelog
+* Mon Jan 18 2021 jingrui<jingrui@huawei.com> - 18.09.0-105
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:sync bugfix include
+  1. fix image cleanup failed.
+  2. cleanup load tmp files.
+  3. kill residual container process.
+  4. resume suspend dm device.
+  5. dont kill containerd during dockerd starting.
+  6. handle exit event for restore failed container.
+  7. wait io with timeout when start failed.
+  8. support hostname mirror registry.
+  9. mask unused proc files.
+
 * Tue Dec 8 2020 xiadanni<xiadanni1@huawei.com> - 18.09.0-104
 - Type:bugfix
 - ID:NA
