@@ -1,0 +1,62 @@
+From 544d24895836ec576febaf94be8affde56449fba Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Fri, 27 Nov 2020 16:31:56 +0800
+Subject: [PATCH] docker: kill container process if its status is not running
+ when start daemon
+
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ components/engine/daemon/daemon.go | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 3ff5691..3cc2a20 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -17,8 +17,10 @@ import (
+ 	"runtime"
+ 	"strings"
+ 	"sync"
++	"syscall"
+ 	"time"
+ 
++	"golang.org/x/sys/unix"
+ 	"google.golang.org/grpc"
+ 
+ 	"github.com/containerd/containerd"
+@@ -43,6 +45,7 @@ import (
+ 	"github.com/moby/buildkit/util/resolver"
+ 	"github.com/moby/buildkit/util/tracing"
+ 	"github.com/sirupsen/logrus"
++
+ 	// register graph drivers
+ 	_ "github.com/docker/docker/daemon/graphdriver/register"
+ 	"github.com/docker/docker/daemon/stats"
+@@ -51,7 +54,7 @@ import (
+ 	"github.com/docker/docker/image"
+ 	"github.com/docker/docker/layer"
+ 	"github.com/docker/docker/libcontainerd"
+-	"github.com/docker/docker/migrate/v1"
++	v1 "github.com/docker/docker/migrate/v1"
+ 	"github.com/docker/docker/pkg/idtools"
+ 	"github.com/docker/docker/pkg/locker"
+ 	"github.com/docker/docker/pkg/plugingetter"
+@@ -389,6 +392,15 @@ func (daemon *Daemon) restore() error {
+ 				}
+ 			}
+ 
++			if alive && !c.IsRunning() && pid > 1 {
++				if c.Pid == 0 {
++					c.Pid = pid
++				}
++				err := unix.Kill(pid, syscall.SIGKILL)
++				logrus.Warnf("process %v is killed as container=%s is alive but not running, err: %v", pid, c.ID, err)
++				return
++			}
++
+ 			if c.IsRunning() || c.IsPaused() {
+ 				c.RestartManager().Cancel() // manually start containers because some need to wait for swarm networking
+ 
+-- 
+1.8.3.1
+

@@ -1,0 +1,85 @@
+From a56def385f835885df056d0d54372111abdc1507 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Sat, 19 Dec 2020 18:56:38 +0800
+Subject: [PATCH] docker:skip kill and restart containerd during docker daemon
+ is starting
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ components/engine/cmd/dockerd/daemon.go                     | 4 +++-
+ components/engine/libcontainerd/supervisor/remote_daemon.go | 9 +++++++++
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index dbf37f3..c25ee0e 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -10,6 +10,7 @@ import (
+ 	"path/filepath"
+ 	"runtime"
+ 	"strings"
++	"sync/atomic"
+ 	"time"
+ 
+ 	containerddefaults "github.com/containerd/containerd/defaults"
+@@ -106,7 +107,7 @@ func resumeDM() {
+ 	select {
+ 	case <-c:
+ 		return
+-	case <-time.After(10*time.Second):
++	case <-time.After(10 * time.Second):
+ 		logrus.Warnf("resume-dm timeout, continue anyway.")
+ 		return
+ 	}
+@@ -304,6 +305,7 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
+ 
+ 	logrus.Info("Daemon has completed initialization")
+ 
++	atomic.StoreInt32(&supervisor.IsDockerUp, 1)
+ 	cli.d = d
+ 
+ 	routerOptions, err := newRouterOptions(cli.Config, d)
+diff --git a/components/engine/libcontainerd/supervisor/remote_daemon.go b/components/engine/libcontainerd/supervisor/remote_daemon.go
+index 62ea58c..19582cd 100644
+--- a/components/engine/libcontainerd/supervisor/remote_daemon.go
++++ b/components/engine/libcontainerd/supervisor/remote_daemon.go
+@@ -11,6 +11,7 @@ import (
+ 	"strconv"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/BurntSushi/toml"
+@@ -19,6 +20,7 @@ import (
+ 	"github.com/docker/docker/pkg/system"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
++	"golang.org/x/sys/unix"
+ )
+ 
+ const (
+@@ -31,6 +33,8 @@ const (
+ 	pidFile                 = "containerd.pid"
+ )
+ 
++var IsDockerUp int32
++
+ type pluginConfigs struct {
+ 	Plugins map[string]interface{} `toml:"plugins"`
+ }
+@@ -314,6 +318,11 @@ func (r *remote) monitorDaemon(ctx context.Context) {
+ 		}
+ 
+ 		if system.IsProcessAlive(r.daemonPid) {
++			if atomic.LoadInt32(&IsDockerUp) == 0 {
++				r.logger.WithField("pid", r.daemonPid).Info("dockerd is starting, skip killing containerd")
++				unix.Kill(r.daemonPid, unix.SIGCONT)
++				continue
++			}
+ 			r.logger.WithField("pid", r.daemonPid).Info("killing and restarting containerd")
+ 			r.killDaemon()
+ 		}
+-- 
+1.8.3.1
+

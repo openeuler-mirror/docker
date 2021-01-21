@@ -1,0 +1,47 @@
+From 0f3aa35a1c38fe7fc49cd6fb66fc47a993ad6bb8 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 16 Dec 2020 18:39:00 +0800
+Subject: [PATCH] wait io with timeout in task delete
+
+Change-Id: I23ed40d69279b14a216b6ffb9988439475be5cad
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../github.com/containerd/containerd/task.go      | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/containerd/containerd/task.go b/components/engine/vendor/github.com/containerd/containerd/task.go
+index 6806e11620..7421432bed 100644
+--- a/components/engine/vendor/github.com/containerd/containerd/task.go
++++ b/components/engine/vendor/github.com/containerd/containerd/task.go
+@@ -44,6 +44,7 @@ import (
+ 	"github.com/opencontainers/image-spec/specs-go/v1"
+ 	specs "github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // UnknownExitStatus is returned when containerd is unable to
+@@ -287,8 +288,18 @@ func (t *task) Delete(ctx context.Context, opts ...ProcessDeleteOpts) (*ExitStat
+ 		return nil, errors.Wrapf(errdefs.ErrFailedPrecondition, "task must be stopped before deletion: %s", status.Status)
+ 	}
+ 	if t.io != nil {
+-		t.io.Cancel()
+-		t.io.Wait()
++		done := make(chan struct{})
++		go func() {
++			t.io.Cancel()
++			t.io.Wait()
++			close(done)
++		}()
++		select {
++		case <-time.After(3 * time.Second):
++			logrus.Warnf("task delete wait io close timeout, some fifo io may be dropped.")
++		case <-done:
++			// ok
++		}
+ 	}
+ 	r, err := t.client.TaskService().Delete(ctx, &tasks.DeleteTaskRequest{
+ 		ContainerID: t.id,
+-- 
+2.17.1
+

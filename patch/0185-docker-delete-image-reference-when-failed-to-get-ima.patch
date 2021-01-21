@@ -1,0 +1,63 @@
+From cfc92becb2605d67a7391c43261e698d0fdd57bd Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Fri, 15 Jan 2021 15:37:42 +0800
+Subject: [PATCH] docker: delete image reference when failed to get image
+ configuration to avoid docker pull error
+
+according to patch 0110-docker-Fix-can-t-pull-image-while-the-image-i.patch,
+if the layers of image has been damaged, image reference should be
+deleted from repositories.json to avoid docker pull failed.
+
+however, when imageStore.Get failed, isExist flag has not been set to
+false, which cause the image reference has still not been deleted, only
+warning is printed.
+
+flood warnings printed every time user restarts docker daemon, like:
+Jan 15 14:09:52 localhost dockerd[3952467]:
+time="2021-01-15T14:09:52.705664179+08:00" level=warning msg="Failed to
+get image configration for image id
+sha256:d0a015ffac5ba3b9d2a641de56b3b2ed24409b7082c7811ebac4c2f4977b0965,
+error: failed to get digest
+sha256:d0a015ffac5ba3b9d2a641de56b3b2ed24409b7082c7811ebac4c2f4977b0965:
+open
+/var/lib/docker/image/devicemapper/imagedb/content/sha256/d0a015ffac5ba3b9d2a641de56b3b2ed24409b7082c7811ebac4c2f4977b0965:
+no such file or directory"
+
+so we fix the logic, delete image reference when failed to get image
+configuration.
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ components/engine/daemon/daemon.go | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index e826f6a..ed268d2 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -1097,11 +1097,10 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 		return nil, err
+ 	}
+ 
+-	// delete reference of image not nornamlly loaded to imageStore
+-	var isExist bool
++	// delete reference of image not normally loaded to imageStore
+ 	for _, imageID := range rs.List() {
++		isExist := false
+ 		if img, err := imageStore.Get(image.ID(imageID)); err == nil {
+-			isExist = false
+ 			if chainID := img.RootFS.ChainID(); chainID != "" {
+ 				l, err := layerStores[runtime.GOOS].Get(chainID)
+ 				if err == nil {
+@@ -1112,7 +1111,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 				isExist = true
+ 			}
+ 		} else {
+-			logrus.Warnf("Failed to get image configration for image id %s, error: %s", imageID, err)
++			logrus.Warnf("Failed to get image configuration for image id %s, error: %s", imageID, err)
+ 		}
+ 
+ 		// If the image not exist locally, delete its reference
+-- 
+1.8.3.1
+
