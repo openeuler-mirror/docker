@@ -1,0 +1,38 @@
+From d26341e4c447ddbb6bd289845b7b47f0e4348c62 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Wed, 11 Nov 2020 17:35:06 +0800
+Subject: [PATCH] docker:fix stats memory usage display error 
+
+fix stats memory usage display error
+use total_inactive_file not cache to calculate memory usage
+The new stat definition corresponds to containerd/CRI and cadvisor.
+
+https://github.com/containerd/cri/blob/c1115d4e57f55a5f45fb3efd29d3181ce26d5c6a/pkg/server/container_stats_list_unix.go#L106-L129
+https://github.com/google/cadvisor/commit/307d1b1cb320fef66fab02db749f07a459245451
+
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+Signed-off-by: Akihiro Suda <akihiro.suda.cz@hco.ntt.co.jp>
+---
+ components/cli/cli/command/container/stats_helpers.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/components/cli/cli/command/container/stats_helpers.go b/components/cli/cli/command/container/stats_helpers.go
+index 2300ce5..c254212 100644
+--- a/components/cli/cli/command/container/stats_helpers.go
++++ b/components/cli/cli/command/container/stats_helpers.go
+@@ -226,7 +226,11 @@ func calculateNetwork(network map[string]types.NetworkStats) (float64, float64)
+ // calculateMemUsageUnixNoCache calculate memory usage of the container.
+ // Page cache is intentionally excluded to avoid misinterpretation of the output.
+ func calculateMemUsageUnixNoCache(mem types.MemoryStats) float64 {
+-	return float64(mem.Usage - mem.Stats["cache"])
++	if v, isCgroup1 := mem.Stats["total_inactive_file"]; isCgroup1 && v < mem.Usage {
++		return float64(mem.Usage - v)
++	}
++
++	return float64(mem.Usage)
+ }
+ 
+ func calculateMemPercentUnixNoCache(limit float64, usedNoCache float64) float64 {
+-- 
+1.8.3.1
+

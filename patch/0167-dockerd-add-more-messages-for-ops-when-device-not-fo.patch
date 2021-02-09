@@ -1,0 +1,27 @@
+From 19ce3a9a435ddb67a4e7a081cd23bb5cc19abc92 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Thu, 30 Jul 2020 05:09:42 -0400
+Subject: [PATCH] dockerd: add more messages for ops when device not found in
+ the host
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/engine/daemon/daemon_unix.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 5a59b324..af50fa37 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -262,7 +262,7 @@ func getBlkioThrottleDevices(devs []*blkiodev.ThrottleDevice) ([]specs.LinuxThro
+ 
+ 	for _, d := range devs {
+ 		if err := unix.Stat(d.Path, &stat); err != nil {
+-			return nil, err
++			return nil, errors.Wrapf(err, "Failed to stat device %q", d.Path)
+ 		}
+ 		d := specs.LinuxThrottleDevice{Rate: d.Rate}
+ 		d.Major = int64(stat.Rdev / 256)
+-- 
+2.19.1
+

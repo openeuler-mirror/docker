@@ -1,0 +1,25 @@
+From 92266f008637a02ebffa2aa2704a09701b07a405 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Mon, 27 Apr 2020 09:43:21 +0800
+Subject: [PATCH] docker: remove redundant word item
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ components/cli/vendor/github.com/asaskevich/govalidator/types.go | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/components/cli/vendor/github.com/asaskevich/govalidator/types.go b/components/cli/vendor/github.com/asaskevich/govalidator/types.go
+index 4f7e9274..78be68c6 100644
+--- a/components/cli/vendor/github.com/asaskevich/govalidator/types.go
++++ b/components/cli/vendor/github.com/asaskevich/govalidator/types.go
+@@ -370,7 +370,6 @@ var ISO3166List = []ISO3166Entry{
+ 	{"Spain", "Espagne (l')", "ES", "ESP", "724"},
+ 	{"South Sudan", "Soudan du Sud (le)", "SS", "SSD", "728"},
+ 	{"Sudan (the)", "Soudan (le)", "SD", "SDN", "729"},
+-	{"Western Sahara*", "Sahara occidental (le)*", "EH", "ESH", "732"},
+ 	{"Suriname", "Suriname (le)", "SR", "SUR", "740"},
+ 	{"Svalbard and Jan Mayen", "Svalbard et l'Île Jan Mayen (le)", "SJ", "SJM", "744"},
+ 	{"Swaziland", "Swaziland (le)", "SZ", "SWZ", "748"},
+-- 
+2.19.1
+
