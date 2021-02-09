@@ -18,7 +18,7 @@ echo 18.09.0.$new_version > VERSION-openeuler
 
 author=$(git config user.name)
 email=$(git config user.email)
-version=$(head -1 docker.spec | awk '{print $NF}')
+version=$(head -10 docker.spec | grep Version | awk '{print $NF}')
 release=$(head -10 docker.spec | grep Release | awk '{print $2}' | awk -F% '{print $1}')
 new_all=$version-$release
 new_changelog=$(cat << EOF
