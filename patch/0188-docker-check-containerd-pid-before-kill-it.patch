@@ -1,0 +1,121 @@
+From eda3fe6001fcf911e4630818514df6ad6531417d Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Thu, 28 Jan 2021 16:02:47 +0800
+Subject: [PATCH] docker: check containerd pid before kill it
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ .../libcontainerd/supervisor/remote_daemon.go       |  6 ++++++
+ .../libcontainerd/supervisor/remote_daemon_linux.go | 15 +++++++++++----
+ components/engine/utils/utils.go                    | 21 +++++++++++++++++++++
+ 3 files changed, 38 insertions(+), 4 deletions(-)
+
+diff --git a/components/engine/libcontainerd/supervisor/remote_daemon.go b/components/engine/libcontainerd/supervisor/remote_daemon.go
+index 19582cd..5cb6de0 100644
+--- a/components/engine/libcontainerd/supervisor/remote_daemon.go
++++ b/components/engine/libcontainerd/supervisor/remote_daemon.go
+@@ -18,6 +18,7 @@ import (
+ 	"github.com/containerd/containerd"
+ 	"github.com/containerd/containerd/services/server"
+ 	"github.com/docker/docker/pkg/system"
++	"github.com/docker/docker/utils"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
+ 	"golang.org/x/sys/unix"
+@@ -139,6 +140,11 @@ func (r *remote) getContainerdPid() (int, error) {
+ 		if err != nil {
+ 			return -1, err
+ 		}
++
++		if !utils.IsContainerdPid(int(pid)) {
++			return -1, nil
++		}
++
+ 		if system.IsProcessAlive(int(pid)) {
+ 			return int(pid), nil
+ 		}
+diff --git a/components/engine/libcontainerd/supervisor/remote_daemon_linux.go b/components/engine/libcontainerd/supervisor/remote_daemon_linux.go
+index 799399c..3ccd38b 100644
+--- a/components/engine/libcontainerd/supervisor/remote_daemon_linux.go
++++ b/components/engine/libcontainerd/supervisor/remote_daemon_linux.go
+@@ -8,6 +8,7 @@ import (
+ 
+ 	"github.com/containerd/containerd/defaults"
+ 	"github.com/docker/docker/pkg/system"
++	"github.com/docker/docker/utils"
+ )
+ 
+ const (
+@@ -42,7 +43,7 @@ func (r *remote) setDefaults() {
+ 
+ func (r *remote) stopDaemon() {
+ 	// Ask the daemon to quit
+-	syscall.Kill(r.daemonPid, syscall.SIGTERM)
++	DoKillContainerd(r.daemonPid, syscall.SIGTERM)
+ 	// Wait up to 15secs for it to stop
+ 	for i := time.Duration(0); i < shutdownTimeout; i += time.Second {
+ 		if !system.IsProcessAlive(r.daemonPid) {
+@@ -53,15 +54,21 @@ func (r *remote) stopDaemon() {
+ 
+ 	if system.IsProcessAlive(r.daemonPid) {
+ 		r.logger.WithField("pid", r.daemonPid).Warn("daemon didn't stop within 15 secs, killing it")
+-		syscall.Kill(r.daemonPid, syscall.SIGKILL)
++		DoKillContainerd(r.daemonPid, syscall.SIGKILL)
++	}
++}
++
++func DoKillContainerd(pid int, sig syscall.Signal) {
++	if utils.IsContainerdPid(pid) {
++		syscall.Kill(pid, sig)
+ 	}
+ }
+ 
+ func (r *remote) killDaemon() {
+ 	// Try to get a stack trace
+-	syscall.Kill(r.daemonPid, syscall.SIGUSR1)
++	DoKillContainerd(r.daemonPid, syscall.SIGUSR1)
+ 	<-time.After(100 * time.Millisecond)
+-	system.KillProcess(r.daemonPid)
++	DoKillContainerd(r.daemonPid, syscall.SIGKILL)
+ }
+ 
+ func (r *remote) platformCleanup() {
+diff --git a/components/engine/utils/utils.go b/components/engine/utils/utils.go
+index 53893fc..c394456 100644
+--- a/components/engine/utils/utils.go
++++ b/components/engine/utils/utils.go
+@@ -19,6 +19,12 @@ int mysemctl(int cmd, struct seminfo *p){
+ import "C"
+ import (
+ 	"fmt"
++	"io/ioutil"
++	"path/filepath"
++	"strconv"
++	"strings"
++
++	"github.com/sirupsen/logrus"
+ )
+ 
+ func CheckSemSetStat() (int, int, error) {
+@@ -30,3 +36,18 @@ func CheckSemSetStat() (int, int, error) {
+ 	}
+ 	return int(seminfo.semusz), int(seminfo.semmni), err
+ }
++
++func IsContainerdPid(pid int) bool {
++	if pid <= 1 {
++		logrus.Warnf("pid %d is not containerd", pid)
++		return false
++	}
++
++	cmdlineBytes, err := ioutil.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
++	if err == nil && !strings.Contains(string(cmdlineBytes), "containerd") {
++		logrus.Warnf("pid %d is not containerd, cmdline: %s", pid, string(cmdlineBytes))
++		return false
++	}
++
++	return true
++}
+-- 
+1.8.3.1
+
