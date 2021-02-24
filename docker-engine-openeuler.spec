@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 200
+Release: 201
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -200,6 +200,12 @@ fi
 %endif
 
 %changelog
+* Wed Feb 24 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-201
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:Fix Access to remapped root allows privilege escalation to real root (CVE-2021-21284)
+
 * Wed Feb 9 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-200
 - Type:bugfix
 - ID:NA
