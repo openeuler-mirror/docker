@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 201
+Release: 202
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -200,6 +200,12 @@ fi
 %endif
 
 %changelog
+* Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-202
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:prevent an invalid image from crashing docker daemon(CVE-2021-21285)
+
 * Wed Feb 24 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-201
 - Type:bugfix
 - ID:NA
