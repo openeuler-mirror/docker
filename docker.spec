@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 113
+Release: 114
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -211,6 +211,16 @@ fi
 %endif
 
 %changelog
+* Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-114
+- Type:bugfix
+- CVE:CVE-2021-21284,CVE-2021-21285
+- SUG:NA
+- DESC:sync bugfix, include:
+       1.fix execCommands leak in health-check
+       2.check containerd pid before kill it
+       3.fix CVE-2021-21284
+       4.fix CVE-2021-21285
+
 * Tue Feb 09 2021 lixiang<lixiang172@huawei.com> - 18.09.0-113
 - Type:enhancement
 - CVE:NA
