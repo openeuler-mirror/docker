@@ -1,0 +1,67 @@
+From 83ef8cfec0df0388bb92788d9c3ec2a306ab7f20 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 20 Jan 2021 17:07:12 +0800
+Subject: [PATCH] docker: fix execCommands leak in health-check
+
+Change-Id: I6bd02bc4a8e08b8de58bc454be8944c73175b3ae
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ components/engine/daemon/daemon.go    | 5 +----
+ components/engine/daemon/exec/exec.go | 7 +++++++
+ components/engine/daemon/health.go    | 2 +-
+ 3 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index ed268d2c4f..57ad832eb2 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -404,10 +404,6 @@ func (daemon *Daemon) restore() error {
+ 			if c.IsRunning() || c.IsPaused() {
+ 				c.RestartManager().Cancel() // manually start containers because some need to wait for swarm networking
+ 
+-				c.Lock()
+-				daemon.initHealthMonitor(c)
+-				c.Unlock()
+-
+ 				if c.IsPaused() && alive {
+ 					s, err := daemon.containerd.Status(context.Background(), c.ID)
+ 					if err != nil {
+@@ -450,6 +446,7 @@ func (daemon *Daemon) restore() error {
+ 
+ 				if getProbe(c) != nil {
+ 					c.Lock()
++					daemon.initHealthMonitor(c)
+ 					if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+ 						logrus.WithError(err).WithField("container", c.ID).
+ 							Error("Failed to checkpoint container state")
+diff --git a/components/engine/daemon/exec/exec.go b/components/engine/daemon/exec/exec.go
+index 08fc87c4b0..47644fc158 100644
+--- a/components/engine/daemon/exec/exec.go
++++ b/components/engine/daemon/exec/exec.go
+@@ -145,3 +145,10 @@ func (e *Store) List() []string {
+ 	e.RUnlock()
+ 	return IDs
+ }
++
++func (e *Store) Size() int {
++	e.RLock()
++	num := len(e.byID)
++	e.RUnlock()
++	return num
++}
+diff --git a/components/engine/daemon/health.go b/components/engine/daemon/health.go
+index 5f26ee5db8..c181850309 100644
+--- a/components/engine/daemon/health.go
++++ b/components/engine/daemon/health.go
+@@ -202,7 +202,7 @@ func monitor(d *Daemon, c *container.Container, stop chan struct{}, probe probe)
+ 				result, err := probe.run(ctx, d, c)
+ 				if err != nil {
+ 					healthChecksFailedCounter.Inc()
+-					logrus.Warnf("Health check for container %s error: %v", c.ID, err)
++					logrus.Warnf("exec-cmds=%d Health check for container %s error: %v", c.ExecCommands.Size(), c.ID, err)
+ 					results <- &types.HealthcheckResult{
+ 						ExitCode: -1,
+ 						Output:   err.Error(),
+-- 
+2.17.1
+
