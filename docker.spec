@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 113
+Release: 115
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -210,7 +210,13 @@ fi
 %endif
 
 %changelog
-* Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-113
+* Thu Apr 01 2021 wangfengtu<wangfengtu@huawei.com> - 18.09.0-115
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:rollback if docker restart when doing BlkDiscard
+
+* Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-114
 - Type:bugfix
 - CVE:CVE-2021-21284,CVE-2021-21285
 - SUG:NA
