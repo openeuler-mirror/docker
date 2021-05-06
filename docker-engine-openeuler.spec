@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 202
+Release: 203
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -14,7 +14,7 @@ URL: https://mobyproject.org
 
 # required packages for build
 # most are already in the container (see contrib/builder/rpm/ARCH/generate.sh)
-BuildRequires: pkgconfig(systemd) golang >= 1.8.3 go-md2man btrfs-progs-devel device-mapper-devel glibc-static libseccomp-devel
+BuildRequires: pkgconfig(systemd) golang >= 1.8.3 btrfs-progs-devel device-mapper-devel glibc-static libseccomp-devel
 BuildRequires: libselinux-devel libtool-ltdl-devel pkgconfig selinux-policy selinux-policy-devel sqlite-devel systemd-devel
 BuildRequires: tar containerd docker-runc docker-proxy
 
@@ -63,8 +63,9 @@ ln -sf ${WORKDIR}/components/engine .gopath/src/github.com/docker/docker
 cd .gopath/src/github.com/docker/cli
 make dynbinary
 
+# man is provided in docker --help and dockerd --help
 # ./man/md2man-all.sh runs outside the build container (if at all), since we don't have go-md2man here
-./man/md2man-all.sh -q
+# ./man/md2man-all.sh -q
 
 rm -rf .gopath
 cd ${WORKDIR}
@@ -113,12 +114,12 @@ install -p -m 644 components/cli/contrib/completion/zsh/_docker $RPM_BUILD_ROOT/
 install -p -m 644 components/cli/contrib/completion/fish/docker.fish $RPM_BUILD_ROOT/usr/share/fish/vendor_completions.d/docker.fish
 
 # install manpages
-install -d %{buildroot}%{_mandir}/man1
-install -p -m 644 components/cli/man/man1/*.1 $RPM_BUILD_ROOT/%{_mandir}/man1
-install -d %{buildroot}%{_mandir}/man5
-install -p -m 644 components/cli/man/man5/*.5 $RPM_BUILD_ROOT/%{_mandir}/man5
-install -d %{buildroot}%{_mandir}/man8
-install -p -m 644 components/cli/man/man8/*.8 $RPM_BUILD_ROOT/%{_mandir}/man8
+# install -d %{buildroot}%{_mandir}/man1
+# install -p -m 644 components/cli/man/man1/*.1 $RPM_BUILD_ROOT/%{_mandir}/man1
+# install -d %{buildroot}%{_mandir}/man5
+# install -p -m 644 components/cli/man/man5/*.5 $RPM_BUILD_ROOT/%{_mandir}/man5
+# install -d %{buildroot}%{_mandir}/man8
+# install -p -m 644 components/cli/man/man8/*.8 $RPM_BUILD_ROOT/%{_mandir}/man8
 
 # add vimfiles
 install -d $RPM_BUILD_ROOT/usr/share/vim/vimfiles/doc
@@ -151,9 +152,9 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /usr/share/zsh/vendor-completions/_docker
 /usr/share/fish/vendor_completions.d/docker.fish
 %doc
-/%{_mandir}/man1/*
-/%{_mandir}/man5/*
-/%{_mandir}/man8/*
+# /%{_mandir}/man1/*
+# /%{_mandir}/man5/*
+# /%{_mandir}/man8/*
 
 %config(noreplace,missingok) /etc/sysconfig/docker
 %config(noreplace,missingok) /etc/sysconfig/docker-storage
@@ -200,6 +201,12 @@ fi
 %endif
 
 %changelog
+* Thu May 6 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-203
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:remove go-md2man build require
+
 * Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-202
 - Type:bugfix
 - ID:NA
