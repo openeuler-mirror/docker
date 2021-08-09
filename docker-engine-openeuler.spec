@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 203
+Release: 204
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,12 @@ fi
 %endif
 
 %changelog
+* Mon Aug 09 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-204
+- Type:bugfix 
+- ID:NA
+- SUG:NA
+- DESC:runc fix systemd cgroup after memory type changed
+
 * Thu May 6 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-203
 - Type:bugfix
 - ID:NA
