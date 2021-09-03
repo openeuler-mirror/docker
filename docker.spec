@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 115
+Release: 116
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -16,7 +16,6 @@ Source6: gen-commit.sh
 URL: https://mobyproject.org
 
 %global is_systemd 1
-%global debug_package %{nil}
 
 # required packages for build
 # most are already in the container (see contrib/builder/rpm/ARCH/generate.sh)
@@ -42,6 +41,8 @@ everything in between - and they don't require you to use a particular
 language, framework or packaging system. That makes them great building blocks
 for deploying and scaling web apps, databases, and backend services without
 depending on a particular stack or provider.
+
+%debug_package
 
 %prep
 cp %{SOURCE0} .
@@ -211,6 +212,12 @@ fi
 %endif
 
 %changelog
+* Fri Sep 03 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-116
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:enable debuginfo
+
 * Thu Apr 01 2021 wangfengtu<wangfengtu@huawei.com> - 18.09.0-115
 - Type:bugfix
 - CVE:NA
