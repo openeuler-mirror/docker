@@ -1,0 +1,30 @@
+From 376f6a9de2dcbf9605c23409a880eb3534af6ffa Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Wed, 8 Sep 2021 09:04:31 +0800
+Subject: [PATCH] docker: add clone3 to seccomp whitelist to fix curl failed in
+ X86
+
+After kernel upgrade to 5.10, clone3 is defined. But if clone3 is not added
+to docker seccomp whitelist, clone3 calling will be rejected in container, which
+causes some commands like curl returns error.
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ components/engine/profiles/seccomp/seccomp_default.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/engine/profiles/seccomp/seccomp_default.go b/components/engine/profiles/seccomp/seccomp_default.go
+index 60550124..ac81c2e0 100644
+--- a/components/engine/profiles/seccomp/seccomp_default.go
++++ b/components/engine/profiles/seccomp/seccomp_default.go
+@@ -449,6 +449,7 @@ func DefaultProfile() *types.Seccomp {
+ 		{
+ 			Names: []string{
+ 				"modify_ldt",
++				"clone3",
+ 			},
+ 			Action: types.ActAllow,
+ 			Args:   []*types.Arg{},
+-- 
+2.27.0
+
