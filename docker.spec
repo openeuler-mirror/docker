@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 117
+Release: 118
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -211,6 +211,12 @@ fi
 %endif
 
 %changelog
+* Sun Sep 26 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-118
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:update seccomp whitelist to Linux 5.10 syscall list
+
 * Tue Aug 31 2021 WangFengTu<wangfengtu@huawei.com> - 18.09.0-117
 - Type:bugfix
 - CVE:NA
