@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 118
+Release: 119
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -55,6 +55,9 @@ cp %{SOURCE5} .
 %build
 
 sh ./apply-patches
+
+# for golang 1.17.3, we need set GO111MODULE=off
+export GO111MODULE=off
 
 # build docker engine
 WORKDIR=$(pwd)
@@ -212,6 +215,12 @@ fi
 %endif
 
 %changelog
+* Tue Dec 28 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-119
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:disable go module build
+
 * Sun Sep 26 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-118
 - Type:bugfix
 - CVE:NA
