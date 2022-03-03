@@ -1,0 +1,27 @@
+From 9bc663c3332937cdb55aa5e31957678fe605b168 Mon Sep 17 00:00:00 2001
+From: xiangrenzhi <xiangrenzhi@huawei.com>
+Date: Thu, 25 Feb 2021 09:27:42 +0800
+Subject: [PATCH] docker: fix images filter when use multi reference filter
+
+Signed-off-by: xiangrenzhi <xiangrenzhi@huawei.com>
+---
+ components/engine/daemon/images/images.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/components/engine/daemon/images/images.go b/components/engine/daemon/images/images.go
+index 49212341c..94e0c1eb8 100644
+--- a/components/engine/daemon/images/images.go
++++ b/components/engine/daemon/images/images.go
+@@ -152,6 +152,9 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
+ 					if matchErr != nil {
+ 						return nil, matchErr
+ 					}
++					if found {
++						break
++					}
+ 				}
+ 				if !found {
+ 					continue
+-- 
+2.19.1
+
