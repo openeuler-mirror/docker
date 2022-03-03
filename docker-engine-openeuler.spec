@@ -205,6 +205,12 @@ fi
 - Type:bugfix
 - ID:NA
 - SUG:NA
+- DESC:fix container status not consistent with its shim process status
+
+* Thu Mar 3 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-207
+- Type:bugfix
+- ID:NA
+- SUG:NA
 - DESC:sync from internal
 
 * Tue Oct 12 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-206
