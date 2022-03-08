@@ -50,7 +50,7 @@ index 0b3fa0e037..dbf37f3338 100644
 +		logrus.Infof("resume-dm start resume suspended dm %v", args)
 +		_, err = exec.Command("dmsetup", args...).CombinedOutput()
 +		if err != nil {
-+			logrus.Errorf("resume-dm %s failed: %v", err)
++			logrus.Errorf("resume-dm failed: %v", err)
 +			return
 +		}
 +		logrus.Infof("resume-dm finished resume suspended dm")
