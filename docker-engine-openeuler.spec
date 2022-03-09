@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 218
+Release: 219
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,12 @@ fi
 %endif
 
 %changelog
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-219
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix ProcessEvent block when CloseStreams block
+
 * Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-218
 - Type:bugfix
 - ID:NA
