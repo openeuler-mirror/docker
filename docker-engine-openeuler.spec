@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 215
+Release: 216
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,12 @@ fi
 %endif
 
 %changelog
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-216
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:Unexport testcase.Cleanup to fix Go 1.14
+
 * Tue Mar 8 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-215
 - Type:bugfix
 - ID:NA
