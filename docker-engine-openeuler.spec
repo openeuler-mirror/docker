@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 220
+Release: 225
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,36 @@ fi
 %endif
 
 %changelog
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-225
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:do not check result of issueDiscard
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-224
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix bug where failed kills didnt fallback to unix kill
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-223
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix time Ticker leak
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-222
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add timeout for IO.Wait
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-221
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix dangling unpigz
+
 * Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-220
 - Type:bugfix
 - ID:NA
