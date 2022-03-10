@@ -1,0 +1,38 @@
+From aa1e1d6caf6983e6242a13b4cf98497161a7abb5 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Sat, 11 Sep 2021 11:45:53 +0800
+Subject: [PATCH] docker:fix time Ticker leak
+
+Tick's Ticker cannot be recovered by the garbage collector, it will
+leak and cause CPU usage high in this case. We should replace it with
+NewTicker and explicitly Stop it.
+---
+ components/engine/daemon/freezer/freezer.go | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/freezer/freezer.go b/components/engine/daemon/freezer/freezer.go
+index 907c7aac2..6df176f2f 100644
+--- a/components/engine/daemon/freezer/freezer.go
++++ b/components/engine/daemon/freezer/freezer.go
+@@ -184,7 +184,8 @@ func (f *freezer) updateCgroup(state string) error {
+ 	curState = strings.TrimSpace(curState)
+ 
+ 	timeout := time.After(30 * time.Second)
+-	tick := time.Tick(1 * time.Millisecond)
++	ticker := time.NewTicker(1 * time.Millisecond)
++	defer ticker.Stop()
+ 	for {
+ 		select {
+ 		case <-timeout:
+@@ -192,7 +193,7 @@ func (f *freezer) updateCgroup(state string) error {
+ 				return fmt.Errorf("cannot write %s to freezer for %#v", curState, err)
+ 			}
+ 			return fmt.Errorf("update freezer cgroup timeout for 30s")
+-		case <-tick:
++		case <-ticker.C:
+ 			// In case this loop does not exit because it doesn't get the expected
+ 			// state, let's write again this state, hoping it's going to be properly
+ 			// set this time. Otherwise, this loop could run infinitely, waiting for
+-- 
+2.27.0
+
