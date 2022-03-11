@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 225
+Release: 232
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,48 @@ fi
 %endif
 
 %changelog
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-232
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix "Up 292 years" in status in docker ps -a
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-231
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix "endpoint with name container_xx already exists in network none" error
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-230
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix container exited after docker restart when processEvent hang
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-229
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:change log level when containerd return "container not found" err
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-228
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add log for easy debug in exit event handler
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-227
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:adding logs for debugging in docker stop
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-226
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add info log for pulling image
+
 * Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-225
 - Type:bugfix
 - ID:NA
