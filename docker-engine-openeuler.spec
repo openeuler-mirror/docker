@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 228
+Release: 229
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,12 @@ fi
 %endif
 
 %changelog
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-229
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:change log level when containerd return "container not found" err
+
 * Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-228
 - Type:bugfix
 - ID:NA
