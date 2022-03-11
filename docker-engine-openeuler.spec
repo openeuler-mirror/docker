@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 231
+Release: 232
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -201,6 +201,12 @@ fi
 %endif
 
 %changelog
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-232
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix "Up 292 years" in status in docker ps -a
+
 * Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-231
 - Type:bugfix
 - ID:NA
