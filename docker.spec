@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 118
+Release: 119
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -16,7 +16,6 @@ Source6: gen-commit.sh
 URL: https://mobyproject.org
 
 %global is_systemd 1
-%global debug_package %{nil}
 
 # required packages for build
 # most are already in the container (see contrib/builder/rpm/ARCH/generate.sh)
@@ -25,7 +24,7 @@ BuildRequires: libselinux-devel libtool-ltdl-devel pkgconfig selinux-policy seli
 BuildRequires: tar containerd docker-runc docker-proxy
 
 # required packages on install
-Requires: /bin/sh iptables libcgroup tar xz device-mapper-libs >= 1.02.90-1 systemd-units
+Requires: /bin/sh iptables libcgroup tar xz device-mapper-libs >= 1.02.90-1 systemd-units docker-runc
 
 # conflicting packages
 Provides: docker
@@ -43,6 +42,8 @@ language, framework or packaging system. That makes them great building blocks
 for deploying and scaling web apps, databases, and backend services without
 depending on a particular stack or provider.
 
+%debug_package
+
 %prep
 cp %{SOURCE0} .
 cp %{SOURCE1} .
@@ -54,6 +55,9 @@ cp %{SOURCE5} .
 %build
 
 sh ./apply-patches
+
+# for golang 1.17.3, we need set GO111MODULE=off
+export GO111MODULE=off
 
 # build docker engine
 WORKDIR=$(pwd)
@@ -98,9 +102,6 @@ install -p -m 755 /usr/bin/docker-proxy $RPM_BUILD_ROOT/%{_bindir}/docker-proxy
 # install containerd
 install -p -m 755 /usr/bin/containerd $RPM_BUILD_ROOT/%{_bindir}/containerd
 install -p -m 755 /usr/bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
-
-# install runc
-install -p -m 755 /usr/local/bin/runc  $RPM_BUILD_ROOT/%{_bindir}/runc
 
 # install udev rules
 install -d $RPM_BUILD_ROOT/%{_sysconfdir}/udev/rules.d
@@ -151,7 +152,6 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /%{_bindir}/containerd
 /%{_bindir}/docker-proxy
 /%{_bindir}/containerd-shim
-/%{_bindir}/runc
 /%{_sysconfdir}/udev/rules.d/80-docker.rules
 %if 0%{?is_systemd}
 /%{_unitdir}/docker.service
@@ -211,6 +211,9 @@ fi
 %endif
 
 %changelog
+* Thu Feb 10 2022 fushanqing <fushanqing@kylinos.cn> - 18.09.0-119
+- remove install runc
+
 * Sun Sep 26 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-118
 - Type:bugfix
 - CVE:NA
