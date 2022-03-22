@@ -1,0 +1,64 @@
+From 20b8dbbf705988f94d16a401e9d4f510387cbd0d Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 7 Jun 2021 11:23:33 +0800
+Subject: [PATCH] docker: fix runc data and dm left when periodically kill
+ containerd
+
+---
+ components/engine/daemon/start.go | 20 ++++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/start.go b/components/engine/daemon/start.go
+index 07bffaa27..7a7e2b2ee 100644
+--- a/components/engine/daemon/start.go
++++ b/components/engine/daemon/start.go
+@@ -2,6 +2,7 @@ package daemon // import "github.com/docker/docker/daemon"
+ 
+ import (
+ 	"context"
++	"os/exec"
+ 	"runtime"
+ 	"time"
+ 
+@@ -14,6 +15,12 @@ import (
+ 	"github.com/sirupsen/logrus"
+ )
+ 
++const RootDirectory = "/var/run/docker/runtime-runc/moby"
++
++func deleteForce(containerID string) error {
++	return exec.Command("runc", "--root", RootDirectory, "delete", "--force", containerID).Run()
++}
++
+ // ContainerStart starts a container.
+ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.HostConfig, checkpoint string, checkpointDir string) error {
+ 	if checkpoint != "" && !daemon.HasExperimental() {
+@@ -210,7 +217,11 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint
+ 	if err != nil {
+ 		if err := daemon.containerd.Delete(context.Background(), container.ID); err != nil {
+ 			logrus.WithError(err).WithField("container", container.ID).
+-				Error("failed to delete failed start container")
++				Error("failed to delete failed start container, try to delete directly")
++			err := deleteForce(container.ID)
++			if err != nil {
++				logrus.Errorf("failed to directly delete container %s", container.ID)
++			}
+ 		}
+ 		return translateContainerdStartErr(container.Path, container.SetExitCode, err)
+ 	}
+@@ -273,6 +284,11 @@ func (daemon *Daemon) Cleanup(container *container.Container) {
+ 	container.CancelAttachContext()
+ 
+ 	if err := daemon.containerd.Delete(context.Background(), container.ID); err != nil {
+-		logrus.Errorf("%s cleanup: failed to delete container from containerd: %v", container.ID, err)
++		logrus.Errorf("%s cleanup: failed to delete container from containerd, try to delete directly: %v", container.ID, err)
++
++		err := deleteForce(container.ID)
++		if err != nil {
++			logrus.Errorf("%s cleanup: failed to directly delete container", container.ID)
++		}
+ 	}
+ }
+-- 
+2.27.0
+

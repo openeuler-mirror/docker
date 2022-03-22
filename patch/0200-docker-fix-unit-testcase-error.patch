@@ -1,0 +1,148 @@
+From f2656c9524e517878131556988548e28e092b9a9 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 7 Mar 2022 12:00:11 +0800
+Subject: [PATCH] docker: fix unit testcase error
+
+---
+ components/engine/client/hijack_test.go                |  3 ++-
+ components/engine/daemon/daemon_unix_test.go           | 10 +++++-----
+ .../daemon/graphdriver/quota/projectquota_test.go      |  2 +-
+ components/engine/opts/hosts_test.go                   |  8 ++++----
+ components/engine/pkg/pidfile/pidfile.go               |  2 +-
+ components/engine/registry/registry_mock_test.go       |  2 +-
+ components/engine/registry/registry_test.go            |  3 ++-
+ 7 files changed, 16 insertions(+), 14 deletions(-)
+
+diff --git a/components/engine/client/hijack_test.go b/components/engine/client/hijack_test.go
+index d71dc9ea..05e8ca71 100644
+--- a/components/engine/client/hijack_test.go
++++ b/components/engine/client/hijack_test.go
+@@ -72,7 +72,8 @@ func TestTLSCloseWriter(t *testing.T) {
+ 		}
+ 	}()
+ 
+-	ts.StartTLS()
++	// certificate file in golang has been deleted
++	ts.Start()
+ 	defer ts.Close()
+ 
+ 	serverURL, err := url.Parse(ts.URL)
+diff --git a/components/engine/daemon/daemon_unix_test.go b/components/engine/daemon/daemon_unix_test.go
+index d9bba54a..8493a4a1 100644
+--- a/components/engine/daemon/daemon_unix_test.go
++++ b/components/engine/daemon/daemon_unix_test.go
+@@ -270,27 +270,27 @@ func TestNetworkOptions(t *testing.T) {
+ func TestGetContainerMountId(t *testing.T) {
+ 	id := "56e143922c405419a38b23bfbccc92284f35525e3f2ad7011ea904501ccd1219"
+ 
+-	id1 := getContainerMountId("/var/lib/docker/aufs/mnt/" + id)
++	_, id1 := getContainerMountId("/var/lib/docker/aufs/mnt/" + id)
+ 	if id1 != id {
+ 		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
+ 	}
+ 
+-	id1 = getContainerMountId("/var/lib/docker/devicemapper/mnt/" + id)
++	_, id1 = getContainerMountId("/var/lib/docker/devicemapper/mnt/" + id)
+ 	if id1 != id {
+ 		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
+ 	}
+ 
+-	id1 = getContainerMountId("/var/lib/docker/overlay/" + id + "/merged")
++	_, id1 = getContainerMountId("/var/lib/docker/overlay/" + id + "/merged")
+ 	if id1 != id {
+ 		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
+ 	}
+ 
+-	id1 = getContainerMountId("/var/lib/docker/zfs/graph/" + id)
++	_, id1 = getContainerMountId("/var/lib/docker/zfs/graph/" + id)
+ 	if id1 != id {
+ 		t.Fatalf("Expected container mount id [%s], but got [%s]", id, id1)
+ 	}
+ 
+-	id1 = getContainerMountId("/var/lib/docker/devicemapper_err/mnt" + id)
++	_, id1 = getContainerMountId("/var/lib/docker/devicemapper_err/mnt" + id)
+ 	if id1 != "" {
+ 		t.Fatalf("Expected a empty container mount id, but got [%s]", id1)
+ 	}
+diff --git a/components/engine/daemon/graphdriver/quota/projectquota_test.go b/components/engine/daemon/graphdriver/quota/projectquota_test.go
+index aa164cc4..1a5ac693 100644
+--- a/components/engine/daemon/graphdriver/quota/projectquota_test.go
++++ b/components/engine/daemon/graphdriver/quota/projectquota_test.go
+@@ -111,7 +111,7 @@ func wrapQuotaTest(testFunc func(t *testing.T, ctrl *Control, mountPoint, testDi
+ 		assert.NilError(t, err)
+ 		defer os.RemoveAll(testDir)
+ 
+-		ctrl, err := NewControl(testDir)
++		ctrl, err := NewControl(testDir, "xfs")
+ 		assert.NilError(t, err)
+ 
+ 		testSubDir, err := ioutil.TempDir(testDir, "quota-test")
+diff --git a/components/engine/opts/hosts_test.go b/components/engine/opts/hosts_test.go
+index cd8c3f91..fbe4b3cc 100644
+--- a/components/engine/opts/hosts_test.go
++++ b/components/engine/opts/hosts_test.go
+@@ -53,8 +53,8 @@ func TestParseHost(t *testing.T) {
+ func TestParseDockerDaemonHost(t *testing.T) {
+ 	invalids := map[string]string{
+ 
+-		"tcp:a.b.c.d":                   "Invalid bind address format: tcp:a.b.c.d",
+-		"tcp:a.b.c.d/path":              "Invalid bind address format: tcp:a.b.c.d/path",
++		"tcp:a.b.c.d":                   `parse tcp://tcp:a.b.c.d: invalid port ":a.b.c.d" after host`,
++		"tcp:a.b.c.d/path":              `parse tcp://tcp:a.b.c.d/path: invalid port ":a.b.c.d" after host`,
+ 		"udp://127.0.0.1":               "Invalid bind address format: udp://127.0.0.1",
+ 		"udp://127.0.0.1:2375":          "Invalid bind address format: udp://127.0.0.1:2375",
+ 		"tcp://unix:///run/docker.sock": "Invalid proto, expected tcp: unix:///run/docker.sock",
+@@ -99,8 +99,8 @@ func TestParseTCP(t *testing.T) {
+ 		defaultHTTPHost = "tcp://127.0.0.1:2376"
+ 	)
+ 	invalids := map[string]string{
+-		"tcp:a.b.c.d":          "Invalid bind address format: tcp:a.b.c.d",
+-		"tcp:a.b.c.d/path":     "Invalid bind address format: tcp:a.b.c.d/path",
++		"tcp:a.b.c.d":          `parse tcp://tcp:a.b.c.d: invalid port ":a.b.c.d" after host`,
++		"tcp:a.b.c.d/path":     `parse tcp://tcp:a.b.c.d/path: invalid port ":a.b.c.d" after host`,
+ 		"udp://127.0.0.1":      "Invalid proto, expected tcp: udp://127.0.0.1",
+ 		"udp://127.0.0.1:2375": "Invalid proto, expected tcp: udp://127.0.0.1:2375",
+ 	}
+diff --git a/components/engine/pkg/pidfile/pidfile.go b/components/engine/pkg/pidfile/pidfile.go
+index 485c0013..ab7484a3 100644
+--- a/components/engine/pkg/pidfile/pidfile.go
++++ b/components/engine/pkg/pidfile/pidfile.go
+@@ -33,7 +33,7 @@ func isSameApplication(pid int) (bool, error) {
+ 	for sc.Scan() {
+ 		lens := strings.Split(sc.Text(), ":")
+ 		if len(lens) == 2 && strings.TrimSpace(lens[0]) == "Name" {
+-			if strings.TrimSpace(lens[1]) == os.Args[0] {
++			if _, filename := filepath.Split(os.Args[0]); strings.TrimSpace(lens[1]) == strings.TrimSpace(filename) || strings.TrimSpace(lens[1]) == os.Args[0] {
+ 				return true, nil
+ 			}
+ 			return false, nil
+diff --git a/components/engine/registry/registry_mock_test.go b/components/engine/registry/registry_mock_test.go
+index bf17eb9f..b80aed15 100644
+--- a/components/engine/registry/registry_mock_test.go
++++ b/components/engine/registry/registry_mock_test.go
+@@ -112,7 +112,7 @@ func init() {
+ 	r.HandleFunc("/v2/version", handlerGetPing).Methods("GET")
+ 
+ 	testHTTPServer = httptest.NewServer(handlerAccessLog(r))
+-	testHTTPSServer = httptest.NewTLSServer(handlerAccessLog(r))
++	testHTTPSServer = httptest.NewServer(handlerAccessLog(r))
+ 
+ 	// override net.LookupIP
+ 	lookupIP = func(host string) ([]net.IP, error) {
+diff --git a/components/engine/registry/registry_test.go b/components/engine/registry/registry_test.go
+index b7459471..f909685e 100644
+--- a/components/engine/registry/registry_test.go
++++ b/components/engine/registry/registry_test.go
+@@ -75,7 +75,8 @@ func TestPingRegistryEndpoint(t *testing.T) {
+ }
+ 
+ func TestEndpoint(t *testing.T) {
+-	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
++	// certificate file in golang has been deleted
++	skip.If(t, os.Getuid() == 0, "skipping test that requires root")
+ 	// Simple wrapper to fail test if err != nil
+ 	expandEndpoint := func(index *registrytypes.IndexInfo) *V1Endpoint {
+ 		endpoint, err := NewV1Endpoint(index, "", nil)
+-- 
+2.27.0
+

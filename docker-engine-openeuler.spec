@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 207
+Release: 233
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -198,11 +198,167 @@ fi
 %endif
 
 %changelog
-* Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-207
+* Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-233
 - Type:bugfix
 - CVE:CVE-2022-24769
 - SUG:NA
 - DESC:fix CVE-2022-24769
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-232
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix "Up 292 years" in status in docker ps -a
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-231
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix "endpoint with name container_xx already exists in network none" error
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-230
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix container exited after docker restart when processEvent hang
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-229
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:change log level when containerd return "container not found" err
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-228
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add log for easy debug in exit event handler
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-227
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:adding logs for debugging in docker stop
+
+* Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-226
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add info log for pulling image
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-225
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:do not check result of issueDiscard
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-224
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix bug where failed kills didnt fallback to unix kill
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-223
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix time Ticker leak
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-222
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add timeout for IO.Wait
+
+* Wed Mar 10 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-221
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix dangling unpigz
+
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-220
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:check db file size before start containerd
+
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-219
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix ProcessEvent block when CloseStreams block
+
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-218
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix runc data and dm left when periodically kill containerd
+
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-217
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix race condition in cmdStream
+
+* Sat Mar 9 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-216
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:Unexport testcase.Cleanup to fix Go 1.14
+
+* Tue Mar 8 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-215
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:Don't fail on two concurrent reference.store.AddDigest calls
+
+* Tue Mar 8 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-214
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:Fix for lack of synchronization in daemon/update.go
+
+* Tue Mar 8 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-213
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:rollback if docker restart when doing BlkDiscard
+
+* Tue Mar 8 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-212
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:use info level for create stop command
+
+* Mon Mar 7 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-211
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix unittest case error
+
+* Mon Mar 7 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-210
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix docker kill command block
+
+* Thu Mar 4 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-209
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix hijack hang
+
+* Thu Mar 3 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-208
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix container status not consistent with its shim process status
+
+* Thu Mar 3 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-207
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:sync from internal
 
 * Tue Oct 12 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-206
 - Type:bugfix
