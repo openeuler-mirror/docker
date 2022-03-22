@@ -1,0 +1,55 @@
+From b7634618332c2d0ca7b59a4d63467c0038918ef0 Mon Sep 17 00:00:00 2001
+From: WangFengTu <wangfengtu@huawei.com>
+Date: Thu, 1 Apr 2021 15:03:20 +0800
+Subject: [PATCH] rollback if docker restart when doing BlkDiscard
+
+Signed-off-by: WangFengTu <wangfengtu@huawei.com>
+---
+ .../daemon/graphdriver/devmapper/deviceset.go   | 17 ++++++++---------
+ 1 file changed, 8 insertions(+), 9 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index 750f2b13..9b6cb021 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -2007,14 +2007,7 @@ func (devices *DeviceSet) markForDeferredDeletion(info *devInfo) error {
+ }
+ 
+ // Should be called with devices.Lock() held.
+-func (devices *DeviceSet) deleteTransaction(info *devInfo, syncDelete bool) error {
+-	if err := devices.openTransaction(info.Hash, info.DeviceID); err != nil {
+-		logrus.WithField("storage-driver", "devicemapper").Debugf("Error opening transaction hash = %s deviceId = %d", "", info.DeviceID)
+-		return err
+-	}
+-
+-	defer devices.closeTransaction()
+-
++func (devices *DeviceSet) deleteDeviceNoLock(info *devInfo, syncDelete bool) error {
+ 	err := devicemapper.DeleteDevice(devices.getPoolDevName(), info.DeviceID)
+ 	if err != nil {
+ 		// If syncDelete is true, we want to return error. If deferred
+@@ -2078,6 +2071,12 @@ func (devices *DeviceSet) issueDiscard(info *devInfo) error {
+ 
+ // Should be called with devices.Lock() held.
+ func (devices *DeviceSet) deleteDevice(info *devInfo, syncDelete bool) error {
++	if err := devices.openTransaction(info.Hash, info.DeviceID); err != nil {
++		logrus.WithField("storage-driver", "devicemapper").Debugf("Error opening transaction hash = %s deviceId = %d", "", info.DeviceID)
++		return err
++	}
++	defer devices.closeTransaction()
++
+ 	if devices.doBlkDiscard {
+ 		if err := devices.issueDiscard(info); err != nil {
+ 			return err
+@@ -2099,7 +2098,7 @@ func (devices *DeviceSet) deleteDevice(info *devInfo, syncDelete bool) error {
+ 		return err
+ 	}
+ 
+-	return devices.deleteTransaction(info, syncDelete)
++	return devices.deleteDeviceNoLock(info, syncDelete)
+ }
+ 
+ // DeleteDevice will return success if device has been marked for deferred
+-- 
+2.25.1
+
