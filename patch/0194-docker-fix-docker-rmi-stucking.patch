@@ -1,0 +1,26 @@
+From ac36676aac3f2dfca8e1ac31115417919b9e0160 Mon Sep 17 00:00:00 2001
+From: xiangrenzhi <xiangrenzhi@huawei.com>
+Date: Thu, 25 Feb 2021 09:37:29 +0800
+Subject: [PATCH] docker: fix docker rmi stucking
+
+Signed-off-by: xiangrenzhi <xiangrenzhi@huawei.com>
+---
+ components/engine/daemon/images/image_delete.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/images/image_delete.go b/components/engine/daemon/images/image_delete.go
+index 94d6f872d..fbd6c16b7 100644
+--- a/components/engine/daemon/images/image_delete.go
++++ b/components/engine/daemon/images/image_delete.go
+@@ -369,7 +369,7 @@ func (i *ImageService) checkImageDeleteConflict(imgID image.ID, mask conflictTyp
+ 	if mask&conflictRunningContainer != 0 {
+ 		// Check if any running container is using the image.
+ 		running := func(c *container.Container) bool {
+-			return c.IsRunning() && c.ImageID == imgID
++			return c.ImageID == imgID && c.IsRunning()
+ 		}
+ 		if container := i.containers.First(running); container != nil {
+ 			return &imageDeleteConflict{
+-- 
+2.19.1
+

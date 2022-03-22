@@ -1,0 +1,88 @@
+From 8034f96d1500dac8af17449b9dba01b07b956a04 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Tue, 2 Mar 2021 09:31:44 +0800
+Subject: [PATCH] docker: fix container status not consistent with its shim
+ process status
+
+1. fix containerd-shim residual when kill containerd during start container
+If containerd is killed after shim and container init process started,
+new containerd process will not clean them during load-task.
+But both of t.Start and t.Delete in docker failed because it cannot
+connect to containerd. In the meanwhile, docker have not received container
+start event yet, so it will not set container status to running.
+All of above caused shim and container init process residual but
+container status from docker is Created. Even after container is
+deleted, shim and init process still exist.
+So we add runc delete --force if t.Start failed, which do not need to
+send signal through containerd to kill container process.
+
+2. fix shim killed but container status is running
+In the similar scene with 1, shim and container init process started,
+and start event is sent to dockerd. But containerd is killed and new
+containerd process is started before t.Delete, shim will be killed but
+container init process is still working, dockerd will not receive
+process exit event. So dockerd shows container is running but actually
+shim is killed.
+So we add runc delete --force if t.Start failed to kill container init
+process.
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ components/engine/libcontainerd/client_daemon.go | 20 ++++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/components/engine/libcontainerd/client_daemon.go b/components/engine/libcontainerd/client_daemon.go
+index 502796b..9c65e54 100755
+--- a/components/engine/libcontainerd/client_daemon.go
++++ b/components/engine/libcontainerd/client_daemon.go
+@@ -8,6 +8,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"os"
++	"os/exec"
+ 	"path/filepath"
+ 	"reflect"
+ 	"runtime"
+@@ -317,10 +318,9 @@ func (c *client) Start(ctx context.Context, id, checkpointDir string, withStdin
+ 	close(stdinCloseSync)
+ 
+ 	if err := t.Start(ctx); err != nil {
+-		if _, err := t.Delete(ctx); err != nil {
+-			c.logger.WithError(err).WithField("container", id).
+-				Error("failed to delete task after fail start")
+-		}
++		exec.Command("runc", "--root", "/var/run/docker/runtime-runc/moby", "delete", "--force", id).Run()
++		_, errD := t.Delete(ctx)
++		logrus.Warnf("container %v start failed, delete task, delete err: %v", id, errD)
+ 		ctr.setTask(nil)
+ 		return -1, wrapError(err)
+ 	}
+@@ -916,10 +916,7 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 				c.logger.WithField("container", ei.ContainerID).Warn("unknown container")
+ 				if et == EventExit && ei.ProcessID == ei.ContainerID && c.backend.IsContainerRunning(ei.ContainerID) {
+ 					c.logger.WithField("container", ei.ContainerID).Warn("handle exit event force ...")
+-					c.eventQ.append(ei.ContainerID, func() {
+-						c.logger.WithField("container", ei.ContainerID).Warnf("handle exit event force: error=%v",
+-							c.backend.ProcessEvent(ei.ContainerID, et, ei))
+-					})
++					c.processOrphanEvent(ctr, et, ei)
+ 				}
+ 				continue
+ 			}
+@@ -935,6 +932,13 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
+ 	}
+ }
+ 
++func (c *client) processOrphanEvent(ctr *container, et EventType, ei EventInfo) {
++	c.eventQ.append(ei.ContainerID, func() {
++		c.logger.WithField("container", ei.ContainerID).Warnf("handle exit event force: error=%v",
++			c.backend.ProcessEvent(ei.ContainerID, et, ei))
++	})
++}
++
+ func (c *client) writeContent(ctx context.Context, mediaType, ref string, r io.Reader) (*types.Descriptor, error) {
+ 	writer, err := c.client.ContentStore().Writer(ctx, content.WithRef(ref))
+ 	if err != nil {
+-- 
+1.8.3.1
+

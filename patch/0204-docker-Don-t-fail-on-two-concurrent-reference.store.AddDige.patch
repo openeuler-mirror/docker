@@ -1,0 +1,87 @@
+From f29dda9acd7a071ab2e4a86f820be236a23838f0 Mon Sep 17 00:00:00 2001
+From: Miloslav Trmač <mitr@redhat.com>
+Date: Thu, 6 Sep 2018 23:24:06 +0200
+Subject: [PATCH] docker: [backport] Don't fail on two concurrent reference.store.AddDigest calls
+
+reference.store.addReference fails when adding a digest reference
+that already exists (regardless of the reference target).  Both
+callers (via reference.store.AddDigest) do check in advance, using
+reference.store.Get, whether the digest reference exists before
+calling AddDigest, but the reference store lock is released between
+the two calls, so if another thread sets the reference in the meantime,
+AddDigest may fail with
+> Cannot overwrite digest ...
+.
+
+Handle this by checking that the pre-existing reference points at the
+same image, i.e. that there is nothing to do, and succeeding immediately
+in that case.  This is even cheaper, avoids a reference.store.save() call.
+
+(In principle, the same failure could have happened via
+reference.store.AddTag, as
+> Conflict: Tag %s is already set to image %s, if you want to replace it, please use -f option
+but almost all callers (except for migrate/v1.Migrate, which is run
+single-threaded anyway) set the "force" parameter of AddTag to true,
+which makes the race invisible.  This commit does not change the behavior
+of that case, except for speeding it up by avoiding the
+reference.store.save() call.)
+
+The existing reference.store.Get checks are now, in a sense, redundant
+as such, but their existence allows the callers to provide nice
+context-dependent error messages, so this commit leaves them unchanged.
+
+Signed-off-by: Miloslav Trmač <mitr@redhat.com>
+
+Conflict:NA
+Reference:https://github.com/moby/moby/commit/f29dda9acd7a071ab2e4a86f820be236a23838f0
+
+---
+ components/engine/reference/store.go      | 5 +++++
+ components/engine/reference/store_test.go | 8 ++++++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/components/engine/reference/store.go b/components/engine/reference/store.go
+index b01051bf58..b942c42ca2 100644
+--- a/components/engine/reference/store.go
++++ b/components/engine/reference/store.go
+@@ -149,6 +149,11 @@ func (store *store) addReference(ref reference.Named, id digest.Digest, force bo
+ 	oldID, exists := repository[refStr]
+ 
+ 	if exists {
++		if oldID == id {
++			// Nothing to do. The caller may have checked for this using store.Get in advance, but store.mu was unlocked in the meantime, so this can legitimately happen nevertheless.
++			return nil
++		}
++
+ 		// force only works for tags
+ 		if digested, isDigest := ref.(reference.Canonical); isDigest {
+ 			return errors.WithStack(conflictingTagError("Cannot overwrite digest " + digested.Digest().String()))
+diff --git a/components/engine/reference/store_test.go b/components/engine/reference/store_test.go
+index 1ce674cbfb..435409d358 100644
+--- a/components/engine/reference/store_test.go
++++ b/components/engine/reference/store_test.go
+@@ -163,6 +163,10 @@ func TestAddDeleteGet(t *testing.T) {
+ 	if err = store.AddTag(ref4, testImageID2, false); err != nil {
+ 		t.Fatalf("error adding to store: %v", err)
+ 	}
++	// Write the same values again; should silently succeed
++	if err = store.AddTag(ref4, testImageID2, false); err != nil {
++		t.Fatalf("error redundantly adding to store: %v", err)
++	}
+ 
+ 	ref5, err := reference.ParseNormalizedNamed("username/repo3@sha256:58153dfb11794fad694460162bf0cb0a4fa710cfa3f60979c177d920813e267c")
+ 	if err != nil {
+@@ -171,6 +175,10 @@ func TestAddDeleteGet(t *testing.T) {
+ 	if err = store.AddDigest(ref5.(reference.Canonical), testImageID2, false); err != nil {
+ 		t.Fatalf("error adding to store: %v", err)
+ 	}
++	// Write the same values again; should silently succeed
++	if err = store.AddDigest(ref5.(reference.Canonical), testImageID2, false); err != nil {
++		t.Fatalf("error redundantly adding to store: %v", err)
++	}
+ 
+ 	// Attempt to overwrite with force == false
+ 	if err = store.AddTag(ref4, testImageID3, false); err == nil || !strings.HasPrefix(err.Error(), "Conflict:") {
+-- 
+2.27.0
+
