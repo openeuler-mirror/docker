@@ -1,0 +1,56 @@
+From fa960e384ada593add8e14c4cbc4da5a4ebf095e Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Fri, 16 Apr 2021 19:49:45 +0800
+Subject: [PATCH] docker: [backport] Fix for lack of synchronization in daemon/update.go
+
+Conflict:NA
+Reference:https://github.com/moby/moby/pull/41999/commits/58825ffc3243f13795b36f430726ae8e3e14bed0
+
+---
+ components/engine/daemon/update.go | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/daemon/update.go b/components/engine/daemon/update.go
+index 0ebb139d3..b38db991b 100644
+--- a/components/engine/daemon/update.go
++++ b/components/engine/daemon/update.go
+@@ -42,20 +42,25 @@ func (daemon *Daemon) update(name string, hostConfig *container.HostConfig) erro
+ 
+ 	restoreConfig := false
+ 	backupHostConfig := *container.HostConfig
++
+ 	defer func() {
+ 		if restoreConfig {
+ 			container.Lock()
+-			container.HostConfig = &backupHostConfig
+-			container.CheckpointTo(daemon.containersReplica)
++			if !container.RemovalInProgress && !container.Dead {
++				container.HostConfig = &backupHostConfig
++				container.CheckpointTo(daemon.containersReplica)
++			}
+ 			container.Unlock()
+ 		}
+ 	}()
+ 
++	container.Lock()
++
+ 	if container.RemovalInProgress || container.Dead {
++		container.Unlock()
+ 		return errCannotUpdate(container.ID, fmt.Errorf("container is marked for removal and cannot be \"update\""))
+ 	}
+ 
+-	container.Lock()
+ 	if err := container.UpdateContainer(hostConfig); err != nil {
+ 		restoreConfig = true
+ 		container.Unlock()
+@@ -66,6 +71,7 @@ func (daemon *Daemon) update(name string, hostConfig *container.HostConfig) erro
+ 		container.Unlock()
+ 		return errCannotUpdate(container.ID, err)
+ 	}
++
+ 	container.Unlock()
+ 
+ 	// if Restart Policy changed, we need to update container monitor
+-- 
+2.27.0
+

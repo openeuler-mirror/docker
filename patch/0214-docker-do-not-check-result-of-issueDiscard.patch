@@ -1,0 +1,31 @@
+From dd4eb547134482edc9d3248870480c3f24cab655 Mon Sep 17 00:00:00 2001
+From: WangFengTu <wangfengtu@huawei.com>
+Date: Mon, 18 Oct 2021 16:14:15 +0800
+Subject: [PATCH] do not check result of issueDiscard
+
+If device not exist, issueDiscard will fail.
+We expect deleteDevice success if device not exist.
+
+Signed-off-by: WangFengTu <wangfengtu@huawei.com>
+---
+ components/engine/daemon/graphdriver/devmapper/deviceset.go | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/deviceset.go b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+index 9b6cb0212..caa0a64cc 100644
+--- a/components/engine/daemon/graphdriver/devmapper/deviceset.go
++++ b/components/engine/daemon/graphdriver/devmapper/deviceset.go
+@@ -2078,9 +2078,7 @@ func (devices *DeviceSet) deleteDevice(info *devInfo, syncDelete bool) error {
+ 	defer devices.closeTransaction()
+ 
+ 	if devices.doBlkDiscard {
+-		if err := devices.issueDiscard(info); err != nil {
+-			return err
+-		}
++		devices.issueDiscard(info)
+ 	}
+ 
+ 	// Try to deactivate device in case it is active.
+-- 
+2.27.0
+
