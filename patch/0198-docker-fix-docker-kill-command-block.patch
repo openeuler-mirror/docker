@@ -1,0 +1,81 @@
+From 74bd1d0c00c53f96696663e45507e332684dac7a Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Wed, 3 Mar 2021 16:46:50 +0800
+Subject: [PATCH] docker: fix docker kill command block
+
+reason:When docker kill command execute with start/restart command
+concurrently, kill command may block at <-container.Wait.
+As s.waitStop is variable, so there is case that waitStop in Wait
+function get a new s.waitStop(the old one is already closed before).
+So kill command blocked to wait the new s.waitStop close.
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ components/engine/container/state.go | 13 +++++++++++--
+ components/engine/daemon/kill.go     |  4 +++-
+ 2 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/container/state.go b/components/engine/container/state.go
+index 91ea30a..e9666ed 100644
+--- a/components/engine/container/state.go
++++ b/components/engine/container/state.go
+@@ -65,6 +65,10 @@ func NewState() *State {
+ 	}
+ }
+ 
++func (s State) GetWaitStop() chan struct{} {
++	return s.waitStop
++}
++
+ // String returns a human-readable description of the state
+ func (s *State) String() string {
+ 	if s.Running {
+@@ -179,6 +183,10 @@ const (
+ // otherwise, the results Err() method will return an error indicating why the
+ // wait operation failed.
+ func (s *State) Wait(ctx context.Context, condition WaitCondition) <-chan StateStatus {
++	return s.Wait3(ctx, condition, nil)
++}
++
++func (s *State) Wait3(ctx context.Context, condition WaitCondition, waitStop chan struct{}) <-chan StateStatus {
+ 	s.Lock()
+ 	defer s.Unlock()
+ 
+@@ -197,9 +205,10 @@ func (s *State) Wait(ctx context.Context, condition WaitCondition) <-chan StateS
+ 
+ 	// If we are waiting only for removal, the waitStop channel should
+ 	// remain nil and block forever.
+-	var waitStop chan struct{}
+ 	if condition < WaitConditionRemoved {
+-		waitStop = s.waitStop
++		if waitStop == nil {
++			waitStop = s.waitStop
++		}
+ 	}
+ 
+ 	// Always wait for removal, just in case the container gets removed
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index d185065..4c8ccf9 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -132,6 +132,8 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 		return nil
+ 	}
+ 
++	waitStop := container.GetWaitStop()
++
+ 	// 1. Send SIGKILL
+ 	if err := daemon.killPossiblyDeadProcess(container, int(syscall.SIGKILL)); err != nil {
+ 		// While normally we might "return err" here we're not going to
+@@ -166,7 +168,7 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 
+ 	// Wait for exit with no timeout.
+ 	// Ignore returned status.
+-	<-container.Wait(context.Background(), containerpkg.WaitConditionNotRunning)
++	<-container.Wait3(context.Background(), containerpkg.WaitConditionNotRunning, waitStop)
+ 
+ 	return nil
+ }
+-- 
+1.8.3.1
+

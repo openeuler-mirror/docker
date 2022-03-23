@@ -1,0 +1,82 @@
+From 210d1acba11aee0cb4a543fa97feb9ecfc4ba532 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Tue, 15 Jun 2021 20:51:10 +0800
+Subject: [PATCH] docker: fix ProcessEvent block when CloseStreams block
+
+The ProcessEvent function will block if the CloseStreams function block in
+exit event processing. The reason is the ProcessEvent function is serial
+processing. So we need add a timeout mechanism to deal with it.
+
+---
+ components/engine/container/stream/streams.go | 42 ++++++++++++-------
+ 1 file changed, 27 insertions(+), 15 deletions(-)
+
+diff --git a/components/engine/container/stream/streams.go b/components/engine/container/stream/streams.go
+index 585f9e8e3..1a7ef33d4 100644
+--- a/components/engine/container/stream/streams.go
++++ b/components/engine/container/stream/streams.go
+@@ -7,6 +7,7 @@ import (
+ 	"io/ioutil"
+ 	"strings"
+ 	"sync"
++	"time"
+ 
+ 	"github.com/containerd/containerd/cio"
+ 	"github.com/docker/docker/pkg/broadcaster"
+@@ -92,27 +93,38 @@ func (c *Config) NewNopInputPipe() {
+ 
+ // CloseStreams ensures that the configured streams are properly closed.
+ func (c *Config) CloseStreams() error {
+-	var errors []string
++	done := make(chan struct{})
++	var errorsInLine error
+ 
+-	if c.stdin != nil {
+-		if err := c.stdin.Close(); err != nil {
+-			errors = append(errors, fmt.Sprintf("error close stdin: %s", err))
++	go func() {
++		var errors []string
++		if c.stdin != nil {
++			if err := c.stdin.Close(); err != nil {
++				errors = append(errors, fmt.Sprintf("error close stdin: %s", err))
++			}
+ 		}
+-	}
+ 
+-	if err := c.stdout.Clean(); err != nil {
+-		errors = append(errors, fmt.Sprintf("error close stdout: %s", err))
+-	}
++		if err := c.stdout.Clean(); err != nil {
++			errors = append(errors, fmt.Sprintf("error close stdout: %s", err))
++		}
+ 
+-	if err := c.stderr.Clean(); err != nil {
+-		errors = append(errors, fmt.Sprintf("error close stderr: %s", err))
+-	}
++		if err := c.stderr.Clean(); err != nil {
++			errors = append(errors, fmt.Sprintf("error close stderr: %s", err))
++		}
+ 
+-	if len(errors) > 0 {
+-		return fmt.Errorf(strings.Join(errors, "\n"))
+-	}
++		if len(errors) > 0 {
++			errorsInLine = fmt.Errorf(strings.Join(errors, "\n"))
++		}
++
++		close(done)
++	}()
+ 
+-	return nil
++	select {
++	case <-done:
++		return errorsInLine
++	case <-time.After(3 * time.Second):
++		return fmt.Errorf("close stream timeout")
++	}
+ }
+ 
+ // CopyToPipe connects streamconfig with a libcontainerd.IOPipe
+-- 
+2.27.0
+

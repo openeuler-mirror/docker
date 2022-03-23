@@ -1,0 +1,82 @@
+From d82a0c7617c5b05871c2cd19812e5bbe539dc1b5 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Thu, 9 Dec 2021 11:55:02 +0800
+Subject: [PATCH] docker: Fix container exited after docker restart when
+ processEvent hang
+
+when processEvent hang, container state will not be Exited in time, and
+the containerStop in containerRestart will return nill due to "no such
+container", and the containerStart in containerRestart will not execute
+for the container state is Running.
+---
+ components/engine/container/container.go              |  8 ++++++++
+ components/engine/daemon/container_operations_unix.go |  2 +-
+ components/engine/daemon/kill.go                      | 10 ++++++----
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/components/engine/container/container.go b/components/engine/container/container.go
+index 7cdf07535..87cdaba2c 100644
+--- a/components/engine/container/container.go
++++ b/components/engine/container/container.go
+@@ -539,6 +539,14 @@ func (container *Container) StopTimeout() int {
+ 	return DefaultStopTimeout
+ }
+ 
++func (container *Container) WaitForState(waitCondition WaitCondition, timeout int) error {
++	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
++	defer cancel()
++
++	status := <-container.Wait(ctx, waitCondition)
++	return status.Err()
++}
++
+ // InitDNSHostConfig ensures that the dns fields are never nil.
+ // New containers don't ever have those fields nil,
+ // but pre created containers can still have those nil values.
+diff --git a/components/engine/daemon/container_operations_unix.go b/components/engine/daemon/container_operations_unix.go
+index 2ea167ca2..e1456ce86 100644
+--- a/components/engine/daemon/container_operations_unix.go
++++ b/components/engine/daemon/container_operations_unix.go
+@@ -361,7 +361,7 @@ func killProcessDirectly(cntr *container.Container) error {
+ 					return err
+ 				}
+ 				e := errNoSuchProcess{pid, 9}
+-				logrus.Debug(e)
++				logrus.WithError(e).WithField("container", cntr.ID).Warning("no such process")
+ 				return e
+ 			}
+ 		}
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index 3f0972a72..2652f7ad2 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -147,13 +147,12 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 		// by that time the container is still running, then the error
+ 		// we got is probably valid and so we return it to the caller.
+ 		if isErrNoSuchProcess(err) {
++			// wait the container's stop amount of time to see the event is eventually processed
++			container.WaitForState(containerpkg.WaitConditionNotRunning, container.StopTimeout())
+ 			return nil
+ 		}
+ 
+-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+-		defer cancel()
+-
+-		if status := <-container.Wait(ctx, containerpkg.WaitConditionNotRunning); status.Err() == nil {
++		if waitError := container.WaitForState(containerpkg.WaitConditionNotRunning, 2); waitError == nil {
+ 			return nil
+ 		}
+ 	}
+@@ -161,6 +160,9 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 	// 2. Wait for the process to die, in last resort, try to kill the process directly
+ 	if err := killProcessDirectly(container); err != nil {
+ 		if isErrNoSuchProcess(err) {
++			// there is a case where we hit here before the exit event is processed
++			//  So let's wait the container's stop timeout amount of time to see if the event is eventually processed
++			container.WaitForState(containerpkg.WaitConditionNotRunning, container.StopTimeout())
+ 			return nil
+ 		}
+ 		return err
+-- 
+2.27.0
+
