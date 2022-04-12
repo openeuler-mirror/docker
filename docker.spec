@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 119
+Release: 120
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -24,7 +24,7 @@ BuildRequires: libselinux-devel libtool-ltdl-devel pkgconfig selinux-policy seli
 BuildRequires: tar containerd docker-runc docker-proxy
 
 # required packages on install
-Requires: /bin/sh iptables libcgroup tar xz device-mapper-libs >= 1.02.90-1 systemd-units docker-runc
+Requires: /bin/sh iptables libcgroup tar xz device-mapper-libs >= 1.02.90-1 systemd-units
 
 # conflicting packages
 Provides: docker
@@ -103,6 +103,9 @@ install -p -m 755 /usr/bin/docker-proxy $RPM_BUILD_ROOT/%{_bindir}/docker-proxy
 install -p -m 755 /usr/bin/containerd $RPM_BUILD_ROOT/%{_bindir}/containerd
 install -p -m 755 /usr/bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 
+# install runc
+install -p -m 755 /usr/local/bin/runc  $RPM_BUILD_ROOT/%{_bindir}/runc
+
 # install udev rules
 install -d $RPM_BUILD_ROOT/%{_sysconfdir}/udev/rules.d
 install -p -m 644 components/engine/contrib/udev/80-docker.rules $RPM_BUILD_ROOT/%{_sysconfdir}/udev/rules.d/80-docker.rules
@@ -152,6 +155,7 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /%{_bindir}/containerd
 /%{_bindir}/docker-proxy
 /%{_bindir}/containerd-shim
+%{_bindir}/runc
 /%{_sysconfdir}/udev/rules.d/80-docker.rules
 %if 0%{?is_systemd}
 /%{_unitdir}/docker.service
@@ -211,6 +215,9 @@ fi
 %endif
 
 %changelog
+* Mon Apr 11 2022 fushanqing <fushanqing@kylinos.cn> - 18.09.0-120
+- Integrated runc
+
 * Thu Feb 10 2022 fushanqing <fushanqing@kylinos.cn> - 18.09.0-119
 - remove install runc
 
