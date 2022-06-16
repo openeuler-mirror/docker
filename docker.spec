@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 120
+Release: 121
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -166,9 +166,6 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /usr/share/zsh/vendor-completions/_docker
 /usr/share/fish/vendor_completions.d/docker.fish
 %doc
-#/%{_mandir}/man1/*
-#/%{_mandir}/man5/*
-#/%{_mandir}/man8/*
 
 %config(noreplace,missingok) /etc/sysconfig/docker
 %config(noreplace,missingok) /etc/sysconfig/docker-storage
@@ -215,6 +212,12 @@ fi
 %endif
 
 %changelog
+* Thu Jun 09 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-121
+- Type:bugfix
+- CVE:CVE-2022-24769
+- SUG:NA
+- DESC:fix CVE-2022-24769
+
 * Mon Apr 11 2022 fushanqing <fushanqing@kylinos.cn> - 18.09.0-120
 - Integrated runc
 
@@ -261,14 +264,14 @@ fi
 - SUG:restart
 - DESC:remove go-md2man build require
 
-* Mon Jan 4 2021 yangyanchao<yangyanchao6@huawei.com> - 18.09.0-111
+* Mon Jan 18 2021 yangyanchao<yangyanchao6@huawei.com> - 18.09.0-111
 - Type:requirement
 - ID:NA
 - CVE:NA
 - SUG:restart
 - docker:components:add config files for riscv
 
-* Mon Jan 18 2021 jingrui<jingrui@huawei.com> - 18.09.0-107
+* Mon Jan 4 2021 jingrui<jingrui@huawei.com> - 18.09.0-107
 - Type:bugfix
 - ID:NA
 - SUG:NA
