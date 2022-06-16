@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 232
+Release: 233
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -152,9 +152,6 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /usr/share/zsh/vendor-completions/_docker
 /usr/share/fish/vendor_completions.d/docker.fish
 %doc
-# /%{_mandir}/man1/*
-# /%{_mandir}/man5/*
-# /%{_mandir}/man8/*
 
 %config(noreplace,missingok) /etc/sysconfig/docker
 %config(noreplace,missingok) /etc/sysconfig/docker-storage
@@ -201,6 +198,12 @@ fi
 %endif
 
 %changelog
+* Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-233
+- Type:bugfix
+- CVE:CVE-2022-24769
+- SUG:NA
+- DESC:fix CVE-2022-24769
+
 * Fri Mar 11 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-232
 - Type:bugfix
 - ID:NA
@@ -375,13 +378,13 @@ fi
 - SUG:NA
 - DESC:runc fix systemd cgroup after memory type changed
 
-* Thu May 6 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-203
+* Thu May 18 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-203
 - Type:bugfix
 - ID:NA
 - SUG:NA
 - DESC:remove go-md2man build require
 
-* Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-202
+* Thu Mar 6 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-202
 - Type:bugfix
 - ID:NA
 - SUG:NA
