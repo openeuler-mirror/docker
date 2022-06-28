@@ -1,0 +1,36 @@
+From e37f4e4f738b605fe5ea1030e39da8d723260007 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Fri, 18 Mar 2022 11:19:28 +0800
+Subject: [PATCH] docker: fix rwlayer umountd after container restart
+
+if exit event be handled to slow, then the exit event maybe handled again.
+we need to add a check after the container lock acquired.
+---
+ components/engine/daemon/monitor.go | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index 0aadf33fd..0bf7f0379 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -60,6 +60,17 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 		if int(ei.Pid) == c.Pid {
+ 			logrus.Infof("handle container %s exit event pid=%d", c.ID, c.Pid)
+ 			c.Lock()
++
++			// ProcessEvent could be called concurrently, and will execute serial
++			// for c.Lock(), but int(ei.Pid) == c.Pid has already pass. It will cause
++			// daemon.Cleanup be called twice. This will make rwlayer umount in docker
++			// restart, get "fork/exec /proc/self/exe: no such file or directory" err.
++			// Adding this under c.Lock(), could avaid daemon.Cleanup be called again.
++			if c.Pid == 0 || int(ei.Pid) != c.Pid {
++				c.Unlock()
++				return nil
++			}
++
+ 			_, _, err := daemon.containerd.DeleteTask(context.Background(), c.ID)
+ 			if err != nil {
+ 				logrus.WithError(err).Warnf("failed to delete container %s from containerd", c.ID)
+-- 
+2.23.0
+
