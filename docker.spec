@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 121
+Release: 301
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -155,7 +155,7 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /%{_bindir}/containerd
 /%{_bindir}/docker-proxy
 /%{_bindir}/containerd-shim
-%{_bindir}/runc
+/%{_bindir}/runc
 /%{_sysconfdir}/udev/rules.d/80-docker.rules
 %if 0%{?is_systemd}
 /%{_unitdir}/docker.service
@@ -212,17 +212,29 @@ fi
 %endif
 
 %changelog
-* Thu Jun 09 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-121
+* Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-301
 - Type:bugfix
 - CVE:CVE-2022-24769
 - SUG:NA
 - DESC:fix CVE-2022-24769
 
-* Mon Apr 11 2022 fushanqing <fushanqing@kylinos.cn> - 18.09.0-120
-- Integrated runc
+* Tue Mar 22 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-300
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:sync from internal
 
-* Thu Feb 10 2022 fushanqing <fushanqing@kylinos.cn> - 18.09.0-119
-- remove install runc
+* Wed Mar 02 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-120
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:Use original process spec for execs
+
+* Tue Dec 28 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-119
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:disable go module build
 
 * Sun Sep 26 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-118
 - Type:bugfix
@@ -230,17 +242,17 @@ fi
 - SUG:NA
 - DESC:update seccomp whitelist to Linux 5.10 syscall list
 
-* Tue Aug 31 2021 WangFengTu<wangfengtu@huawei.com> - 18.09.0-117
+* Wed Sep 08 2021 xiadanni<xiadanni1@huawei.com> - 18.09.0-117
 - Type:bugfix
 - CVE:NA
 - SUG:NA
-- DESC:fix rpmbuild failed
+- DESC:add clone3 to seccomp whitelist to fix curl failed in X86
 
-* Mon Aug 30 2021 wangfengtu<wangfengtu@huawei.com> - 18.09.0-116
+* Fri Sep 03 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-116
 - Type:bugfix
 - CVE:NA
 - SUG:NA
-- DESC:fix dangling unpigz
+- DESC:enable debuginfo
 
 * Thu Apr 01 2021 wangfengtu<wangfengtu@huawei.com> - 18.09.0-115
 - Type:bugfix

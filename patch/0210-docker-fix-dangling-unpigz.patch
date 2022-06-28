@@ -1,4 +1,4 @@
-From 6926d4e842dc26043cbdd38de5a8c0776f0d4d43 Mon Sep 17 00:00:00 2001
+From 372bbea9041ab101156c881232d83d3e3124fd25 Mon Sep 17 00:00:00 2001
 From: WangFengTu <wangfengtu@huawei.com>
 Date: Sun, 29 Aug 2021 15:49:03 +0800
 Subject: [PATCH] fix dangling unpigz
@@ -9,7 +9,7 @@ Signed-off-by: WangFengTu <wangfengtu@huawei.com>
  1 file changed, 1 insertion(+)
 
 diff --git a/components/engine/builder/dockerfile/copy.go b/components/engine/builder/dockerfile/copy.go
-index ad9b08df..c323e703 100644
+index ad9b08dfe..c323e7033 100644
 --- a/components/engine/builder/dockerfile/copy.go
 +++ b/components/engine/builder/dockerfile/copy.go
 @@ -527,6 +527,7 @@ func isArchivePath(driver containerfs.ContainerFS, path string) bool {
@@ -21,5 +21,5 @@ index ad9b08df..c323e703 100644
  	_, err = r.Next()
  	return err == nil
 -- 
-2.25.1
+2.23.0
 

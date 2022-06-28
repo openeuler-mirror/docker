@@ -1,0 +1,26 @@
+From 0f1c3dc7a112d26b45001bf0631e6ae43f7c2f39 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Sun, 21 Nov 2021 14:09:37 +0800
+Subject: [PATCH] docker: change log level when containerd return "container
+ not found" err
+
+---
+ components/engine/daemon/kill.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index 593275cf8..3f0972a72 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -105,7 +105,7 @@ func (daemon *Daemon) killWithSignal(container *containerpkg.Container, sig int)
+ 	if err := daemon.kill(container, sig); err != nil {
+ 		if errdefs.IsNotFound(err) {
+ 			unpause = false
+-			logrus.WithError(err).WithField("container", container.ID).WithField("action", "kill").Debug("container kill failed because of 'container not found' or 'no such process'")
++			logrus.WithError(err).WithField("container", container.ID).WithField("action", "kill").Info("container kill failed because of 'container not found' or 'no such process'")
+ 		} else {
+ 			return errors.Wrapf(err, "Cannot kill container %s", container.ID)
+ 		}
+-- 
+2.27.0
+
