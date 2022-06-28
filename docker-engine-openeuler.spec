@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 235
+Release: 236
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -198,6 +198,12 @@ fi
 %endif
 
 %changelog
+* Thu Jun 28 2022 chenjiankun <chenjiankun1@huawei.com> - 18.09.0-235
+- Type:CVE
+- CVE:CVE-2021-41089
+- SUG:NA
+- DESC:fix CVE-2021-41089
+
 * Thu Jun 28 2022 chenjiankun <chenjiankun1@huawei.com> - 18.09.0-235
 - Type:bugfix
 - CVE:NA
