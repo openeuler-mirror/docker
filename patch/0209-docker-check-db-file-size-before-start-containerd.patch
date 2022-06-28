@@ -1,0 +1,90 @@
+From c79f7bc343ebb9b855e7a28282d8c9ebcaf7e63c Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Thu, 5 Aug 2021 15:12:14 +0800
+Subject: [PATCH] docker: check db file size before start containerd
+
+if the db file's metadata is damaged, the db will load failed
+with error "file size too small" when starting. we need to check it
+before start containerd.
+---
+ components/engine/cmd/dockerd/daemon.go | 45 +++++++++++++------------
+ 1 file changed, 24 insertions(+), 21 deletions(-)
+
+diff --git a/components/engine/cmd/dockerd/daemon.go b/components/engine/cmd/dockerd/daemon.go
+index 04bc06b92..a96c9d98b 100644
+--- a/components/engine/cmd/dockerd/daemon.go
++++ b/components/engine/cmd/dockerd/daemon.go
+@@ -113,28 +113,29 @@ func resumeDM() {
+ 	}
+ }
+ 
+-func cleanupLocalDB(db string) {
+-	_, err := os.Stat(db)
+-	if err == nil {
+-		err = os.Remove(db)
+-		logrus.Infof("cleanup DB %s error=%v", db, err)
++func cleanupLocalDB(db string, checkSize bool) {
++	if info, err := os.Stat(db); err == nil {
++		if checkSize == false || int(info.Size()) < 2*os.Getpagesize() {
++			err = os.Remove(db)
++			logrus.Infof("cleanup DB %s error=%v", db, err)
++		}
+ 	}
+ }
+ 
+ // DB files may corrupted on exception poweroff but can be rebuild at run time,
+ // so we can remove DB files on OS starts avoid daemon can not startup.
+ func cleanupLocalDBs(run, root string) {
++	checkSize := true
++
+ 	// check db lock is exist, do nothing if file is existed
+ 	dbLockPath := filepath.Join(run, "dblock")
+-	_, err := os.Stat(dbLockPath)
+-	if err == nil {
+-		return
+-	}
+-	if !os.IsNotExist(err) {
+-		logrus.Errorf("stat dblock failed %v", err)
+-		return
++	_, statErr := os.Stat(dbLockPath)
++	if os.IsNotExist(statErr) {
++		checkSize = false
++		logrus.Errorf("stat dblock failed %v", statErr)
++		logrus.Devour(ioutil.WriteFile(dbLockPath, []byte{}, 0600))
+ 	}
+-	logrus.Devour(ioutil.WriteFile(dbLockPath, []byte{}, 0600))
++
+ 	files, err := ioutil.ReadDir(filepath.Join(run, "containerd"))
+ 	logrus.Devour(err)
+ 	olds, err := ioutil.ReadDir(filepath.Join(run, "libcontainerd"))
+@@ -145,17 +146,19 @@ func cleanupLocalDBs(run, root string) {
+ 			return
+ 		}
+ 	}
++
+ 	if os.Getenv("DISABLE_CRASH_FILES_DELETE") == "true" {
+ 		return
+ 	}
+-	cleanupLocalDB(filepath.Join(root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"))
+-	cleanupLocalDB(filepath.Join(root, "builder/fscache.db"))
+-	cleanupLocalDB(filepath.Join(root, "volumes/metadata.db"))
+-	cleanupLocalDB(filepath.Join(root, "network/files/local-kv.db"))
+-	cleanupLocalDB(filepath.Join(root, "accelerator/accel.db"))
+-	cleanupLocalDB(filepath.Join(root, "buildkit/metadata.db"))
+-	cleanupLocalDB(filepath.Join(root, "buildkit/cache.db"))
+-	cleanupLocalDB(filepath.Join(root, "buildkit/snapshots.db"))
++
++	cleanupLocalDB(filepath.Join(root, "containerd/daemon/io.containerd.metadata.v1.bolt/meta.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "builder/fscache.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "volumes/metadata.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "network/files/local-kv.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "accelerator/accel.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "buildkit/metadata.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "buildkit/cache.db"), checkSize)
++	cleanupLocalDB(filepath.Join(root, "buildkit/snapshots.db"), checkSize)
+ }
+ 
+ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
+-- 
+2.27.0
+

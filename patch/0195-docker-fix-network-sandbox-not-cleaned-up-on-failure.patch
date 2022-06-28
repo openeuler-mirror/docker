@@ -1,0 +1,35 @@
+From a0a85fc867a59c1ae7b6f4a36b624224dfdedeea Mon Sep 17 00:00:00 2001
+From: xiangrenzhi <xiangrenzhi@huawei.com>
+Date: Thu, 25 Feb 2021 09:42:04 +0800
+Subject: [PATCH] docker: fix network sandbox not cleaned up on failure
+
+Signed-off-by: xiangrenzhi <xiangrenzhi@huawei.com>
+---
+ components/engine/daemon/container_operations.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/container_operations.go b/components/engine/daemon/container_operations.go
+index 909c7ccb2..39b52b037 100644
+--- a/components/engine/daemon/container_operations.go
++++ b/components/engine/daemon/container_operations.go
+@@ -498,7 +498,7 @@ func (daemon *Daemon) updateContainerNetworkSettings(container *container.Contai
+ 	}
+ }
+ 
+-func (daemon *Daemon) allocateNetwork(container *container.Container) error {
++func (daemon *Daemon) allocateNetwork(container *container.Container) (retErr error) {
+ 	start := time.Now()
+ 	controller := daemon.netController
+ 
+@@ -566,7 +566,7 @@ func (daemon *Daemon) allocateNetwork(container *container.Container) error {
+ 			}
+ 			updateSandboxNetworkSettings(container, sb)
+ 			defer func() {
+-				if err != nil {
++				if retErr != nil {
+ 					sb.Delete()
+ 				}
+ 			}()
+-- 
+2.19.1
+
