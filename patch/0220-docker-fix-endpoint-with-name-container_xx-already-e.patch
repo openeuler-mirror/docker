@@ -1,0 +1,33 @@
+From a7c1bbed0aed4c9a5c67871f7506646c07c34574 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Thu, 9 Dec 2021 20:58:32 +0800
+Subject: [PATCH] docker: fix "endpoint with name container_xx already exists
+ in network none" error
+
+---
+ components/engine/daemon/kill.go | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index 2652f7ad2..0388b16c9 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -163,6 +163,15 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 			// there is a case where we hit here before the exit event is processed
+ 			//  So let's wait the container's stop timeout amount of time to see if the event is eventually processed
+ 			container.WaitForState(containerpkg.WaitConditionNotRunning, container.StopTimeout())
++			// using mock exit event to handle container exit
++			ei := libcontainerd.EventInfo{
++				ContainerID: container.ID,
++				ProcessID:   container.ID,
++				Pid:         uint32(container.GetPID()),
++				ExitCode:    137,
++				ExitedAt:    time.Now(),
++			}
++			daemon.ProcessEvent(container.ID, libcontainerd.EventExit, ei)
+ 			return nil
+ 		}
+ 		return err
+-- 
+2.27.0
+

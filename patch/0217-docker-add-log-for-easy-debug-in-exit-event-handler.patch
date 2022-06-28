@@ -1,0 +1,45 @@
+From b86b55f6bdad46b2fcb955402c512305eb36e90c Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 15 Nov 2021 15:40:55 +0800
+Subject: [PATCH] docker: add log for easy debug in exit event handler
+
+---
+ components/engine/daemon/monitor.go              | 2 +-
+ components/engine/libcontainerd/client_daemon.go | 7 +++++++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index 1b577c0da..0aadf33fd 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -58,8 +58,8 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 		daemon.LogContainerEvent(c, "oom")
+ 	case libcontainerd.EventExit:
+ 		if int(ei.Pid) == c.Pid {
++			logrus.Infof("handle container %s exit event pid=%d", c.ID, c.Pid)
+ 			c.Lock()
+-			logrus.Infof("handle exit event cid=%s pid=%d", c.ID, c.Pid)
+ 			_, _, err := daemon.containerd.DeleteTask(context.Background(), c.ID)
+ 			if err != nil {
+ 				logrus.WithError(err).Warnf("failed to delete container %s from containerd", c.ID)
+diff --git a/components/engine/libcontainerd/client_daemon.go b/components/engine/libcontainerd/client_daemon.go
+index 9c65e54c3..62e0f58d5 100755
+--- a/components/engine/libcontainerd/client_daemon.go
++++ b/components/engine/libcontainerd/client_daemon.go
+@@ -726,6 +726,13 @@ func (c *client) processEvent(ctr *container, et EventType, ei EventInfo) {
+ 			}).Error("failed to process event")
+ 		}
+ 
++		defer func() {
++			if et == EventExit {
++				c.logger.Infof("handled exit event processID=%s containerID=%s pid=%d", ei.ProcessID, ei.ContainerID, ei.Pid)
++			}
++		}()
++
++
+ 		if et == EventExit && ei.ProcessID != ei.ContainerID {
+ 			p := ctr.getProcess(ei.ProcessID)
+ 			if p == nil {
+-- 
+2.27.0
+

@@ -1,0 +1,40 @@
+From 57bbb50663f80e78cbdb5283b28be19b64f14ea9 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Thu, 13 May 2021 11:15:40 +0800
+Subject: [PATCH] docker: [backport] Unexport testcase.Cleanup to fix Go 1.14
+
+Conflict:NA
+Reference:https://github.com/gotestyourself/gotest.tools/pull/169/commits/6bc35c2eea35a967a8fe3cf05f491da2cc1793d0
+
+---
+ components/engine/vendor/gotest.tools/x/subtest/context.go | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/vendor/gotest.tools/x/subtest/context.go b/components/engine/vendor/gotest.tools/x/subtest/context.go
+index 878bdebf1..bcf13eed5 100644
+--- a/components/engine/vendor/gotest.tools/x/subtest/context.go
++++ b/components/engine/vendor/gotest.tools/x/subtest/context.go
+@@ -27,9 +27,9 @@ func (tc *testcase) Ctx() context.Context {
+ 	return tc.ctx
+ }
+ 
+-// Cleanup runs all cleanup functions. Functions are run in the opposite order
++// cleanup runs all cleanup functions. Functions are run in the opposite order
+ // in which they were added. Cleanup is called automatically before Run exits.
+-func (tc *testcase) Cleanup() {
++func (tc *testcase) cleanup() {
+ 	for _, f := range tc.cleanupFuncs {
+ 		// Defer all cleanup functions so they all run even if one calls
+ 		// t.FailNow() or panics. Deferring them also runs them in reverse order.
+@@ -59,7 +59,7 @@ type parallel interface {
+ func Run(t *testing.T, name string, subtest func(t TestContext)) bool {
+ 	return t.Run(name, func(t *testing.T) {
+ 		tc := &testcase{TB: t}
+-		defer tc.Cleanup()
++		defer tc.cleanup()
+ 		subtest(tc)
+ 	})
+ }
+-- 
+2.27.0
+

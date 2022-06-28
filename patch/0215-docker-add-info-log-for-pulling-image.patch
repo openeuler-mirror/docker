@@ -1,0 +1,69 @@
+From deb30c8d68ff1199b4cbe4822fc8336ff65f6e1f Mon Sep 17 00:00:00 2001
+From: WangFengTu <wangfengtu@huawei.com>
+Date: Wed, 3 Nov 2021 13:34:53 +0800
+Subject: [PATCH] add info log for pulling image
+
+Signed-off-by: WangFengTu <wangfengtu@huawei.com>
+---
+ .../api/server/router/image/image_routes.go      | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/api/server/router/image/image_routes.go b/components/engine/api/server/router/image/image_routes.go
+index b7bb340e9..2c14945d2 100644
+--- a/components/engine/api/server/router/image/image_routes.go
++++ b/components/engine/api/server/router/image/image_routes.go
+@@ -20,12 +20,14 @@ import (
+ 	"github.com/docker/docker/registry"
+ 	specs "github.com/opencontainers/image-spec/specs-go/v1"
+ 	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // Creates an image from Pull or from Import
+ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+ 
+ 	if err := httputils.ParseForm(r); err != nil {
++		logrus.Errorf("parse image create http request failed: %v", err)
+ 		return err
+ 	}
+ 
+@@ -37,16 +39,26 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
+ 		err      error
+ 		output   = ioutils.NewWriteFlusher(w)
+ 		platform *specs.Platform
++		sp       specs.Platform
+ 	)
+ 	defer output.Close()
+ 
++	logrus.Infof("received image create request, name:%v:%v repo:%v", image, tag, repo)
++	defer func() {
++		if err != nil {
++			logrus.Errorf("image create request process failed, name:%v:%v repo:%v error: %v", image, tag, repo, err)
++		} else {
++			logrus.Infof("image create request process success, name:%v:%v repo:%v", image, tag, repo)
++		}
++	}()
++
+ 	w.Header().Set("Content-Type", "application/json")
+ 
+ 	version := httputils.VersionFromContext(ctx)
+ 	if versions.GreaterThanOrEqualTo(version, "1.32") {
+ 		apiPlatform := r.FormValue("platform")
+ 		if apiPlatform != "" {
+-			sp, err := platforms.Parse(apiPlatform)
++			sp, err = platforms.Parse(apiPlatform)
+ 			if err != nil {
+ 				return err
+ 			}
+@@ -70,7 +82,7 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
+ 			authConfig := &types.AuthConfig{}
+ 			if authEncoded != "" {
+ 				authJSON := base64.NewDecoder(base64.URLEncoding, strings.NewReader(authEncoded))
+-				if err := json.NewDecoder(authJSON).Decode(authConfig); err != nil {
++				if err = json.NewDecoder(authJSON).Decode(authConfig); err != nil {
+ 					// for a pull it is not an error if no auth was given
+ 					// to increase compatibility with the existing api it is defaulting to be empty
+ 					authConfig = &types.AuthConfig{}
+-- 
+2.23.0
+
