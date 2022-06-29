@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 301
+Release: 306
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -212,6 +212,36 @@ fi
 %endif
 
 %changelog
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-306
+- Type:CVE
+- CVE:CVE-2021-41092
+- SUG:NA
+- DESC:fix CVE-2021-41092
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-305
+- Type:CVE
+- CVE:CVE-2021-41091
+- SUG:NA
+- DESC:fix CVE-2021-41091
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-304
+- Type:CVE
+- CVE:CVE-2021-41089
+- SUG:NA
+- DESC:fix CVE-2021-41089
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-303
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:close channel in write side to avoid panic in docker stats
+
+* Tue Jun 28 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-302
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:fix status inconsistent after restart container
+
 * Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-301
 - Type:bugfix
 - CVE:CVE-2022-24769
