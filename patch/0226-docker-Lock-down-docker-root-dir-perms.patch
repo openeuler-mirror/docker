@@ -1,0 +1,324 @@
+From 4d3147906307befb5055d668bb4d55c1f3c03286 Mon Sep 17 00:00:00 2001
+From: zhongjiawei <zhongjiawei1@huawei.com>
+Date: Thu, 9 Jun 2022 10:48:26 +0800
+Subject: [PATCH] docker: Lock down docker root dir perms.
+
+Do not use 0701 perms.
+0701 dir perms allows anyone to traverse the docker dir.
+It happens to allow any user to execute, as an example, suid binaries
+from image rootfs dirs because it allows traversal AND critically
+container users need to be able to do execute things.
+
+0701 on lower directories also happens to allow any user to modify
+     things in, for instance, the overlay upper dir which neccessarily
+     has 0755 permissions.
+
+This changes to use 0710 which allows users in the group to traverse.
+In userns mode the UID owner is (real) root and the GID is the remapped
+root's GID.
+
+This prevents anyone but the remapped root to traverse our directories
+(which is required for userns with runc).
+
+Conflict:daemon/graphdriver/fuse-overlayfs/fuseoverlayfs.go
+Reference:https://github.com/moby/moby/commit/f0ab919f518c47240ea0e72d0999576bb8008e64
+---
+ .../daemon/container_operations_unix.go       |  2 +-
+ components/engine/daemon/create.go            |  5 ++--
+ components/engine/daemon/daemon.go            |  5 +++-
+ components/engine/daemon/daemon_unix.go       | 13 +++++-----
+ .../engine/daemon/graphdriver/aufs/aufs.go    | 13 ++++++++--
+ .../engine/daemon/graphdriver/btrfs/btrfs.go  | 18 ++++++++++++--
+ .../daemon/graphdriver/overlay/overlay.go     | 19 +++++++++++----
+ .../daemon/graphdriver/overlay2/overlay.go    | 24 +++++++++++++++----
+ .../engine/daemon/graphdriver/vfs/driver.go   | 16 +++++++++++--
+ .../engine/daemon/graphdriver/zfs/zfs.go      | 11 ++++++++-
+ 10 files changed, 101 insertions(+), 25 deletions(-)
+
+diff --git a/components/engine/daemon/container_operations_unix.go b/components/engine/daemon/container_operations_unix.go
+index e238366c1..5c6a09ce4 100644
+--- a/components/engine/daemon/container_operations_unix.go
++++ b/components/engine/daemon/container_operations_unix.go
+@@ -425,5 +425,5 @@ func (daemon *Daemon) setupContainerMountsRoot(c *container.Container) error {
+ 	if err != nil {
+ 		return err
+ 	}
+-	return idtools.MkdirAllAndChown(p, 0701, idtools.CurrentIdentity())
++	return idtools.MkdirAllAndChown(p, 0710, idtools.Identity{UID: idtools.CurrentIdentity().UID, GID: daemon.IdentityMapping().RootPair().GID})
+ }
+diff --git a/components/engine/daemon/create.go b/components/engine/daemon/create.go
+index 4d083e703..e3dd598d4 100644
+--- a/components/engine/daemon/create.go
++++ b/components/engine/daemon/create.go
+@@ -190,10 +190,11 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
+ 		return nil, err
+ 	}
+ 
+-	if err := idtools.MkdirAndChown(container.Root, 0701, idtools.CurrentIdentity()); err != nil {
++	current := idtools.CurrentIdentity()
++	if err := idtools.MkdirAndChown(container.Root, 0710, idtools.Identity{UID: current.UID, GID: daemon.IdentityMapping().RootPair().GID}); err != nil {
+ 		return nil, err
+ 	}
+-	if err := idtools.MkdirAndChown(container.CheckpointDir(), 0700, idtools.CurrentIdentity()); err != nil {
++	if err := idtools.MkdirAndChown(container.CheckpointDir(), 0700, current); err != nil {
+ 		return nil, err
+ 	}
+ 
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index b3039abf3..5c6be8e45 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -913,7 +913,10 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
+ 	}
+ 
+ 	daemonRepo := filepath.Join(config.Root, "containers")
+-	if err := idtools.MkdirAllAndChown(daemonRepo, 0701, idtools.CurrentIdentity()); err != nil {
++	if err := idtools.MkdirAllAndChown(daemonRepo, 0710, idtools.Identity{
++		UID: idtools.CurrentIdentity().UID,
++		GID: rootIDs.GID,
++	}); err != nil {
+ 		return nil, err
+ 	}
+ 
+diff --git a/components/engine/daemon/daemon_unix.go b/components/engine/daemon/daemon_unix.go
+index 07a0aa0d5..8c21807df 100644
+--- a/components/engine/daemon/daemon_unix.go
++++ b/components/engine/daemon/daemon_unix.go
+@@ -1291,21 +1291,22 @@ func setupDaemonRoot(config *config.Config, rootDir string, remappedRoot idtools
+ 		}
+ 	}
+ 
++	id := idtools.Identity{UID: idtools.CurrentIdentity().UID, GID: remappedRoot.GID}
++	// First make sure the current root dir has the correct perms.
++	if err := idtools.MkdirAllAndChown(config.Root, 0710, id); err != nil {
++		return errors.Wrapf(err, "could not create or set daemon root permissions: %s", config.Root)
++	}
++
+ 	// if user namespaces are enabled we will create a subtree underneath the specified root
+ 	// with any/all specified remapped root uid/gid options on the daemon creating
+ 	// a new subdirectory with ownership set to the remapped uid/gid (so as to allow
+ 	// `chdir()` to work for containers namespaced to that uid/gid)
+ 	if config.RemappedRoot != "" {
+-		id := idtools.CurrentIdentity()
+-		// First make sure the current root dir has the correct perms.
+-		if err := idtools.MkdirAllAndChown(config.Root, 0701, id); err != nil {
+-			return errors.Wrapf(err, "could not create or set daemon root permissions: %s", config.Root)
+-		}
+ 
+ 		config.Root = filepath.Join(rootDir, fmt.Sprintf("%d.%d", remappedRoot.UID, remappedRoot.GID))
+ 		logrus.Debugf("Creating user namespaced daemon root: %s", config.Root)
+ 		// Create the root directory if it doesn't exist
+-		if err := idtools.MkdirAllAndChown(config.Root, 0701, id); err != nil {
++		if err := idtools.MkdirAllAndChown(config.Root, 0710, id); err != nil {
+ 			return fmt.Errorf("Cannot create daemon root: %s: %v", config.Root, err)
+ 		}
+ 		// we also need to verify that any pre-existing directories in the path to
+diff --git a/components/engine/daemon/graphdriver/aufs/aufs.go b/components/engine/daemon/graphdriver/aufs/aufs.go
+index 4ee3682cb..f0e8e0b23 100644
+--- a/components/engine/daemon/graphdriver/aufs/aufs.go
++++ b/components/engine/daemon/graphdriver/aufs/aufs.go
+@@ -131,14 +131,23 @@ func Init(root string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 	}
+ 
+ 	currentID := idtools.CurrentIdentity()
++	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
++	if err != nil {
++		return nil, err
++	}
++	dirID := idtools.Identity{
++		UID: currentID.UID,
++		GID: rootGID,
++	}
++
+ 	// Create the root aufs driver dir
+-	if err := idtools.MkdirAllAndChown(root, 0701, currentID); err != nil {
++	if err := idtools.MkdirAllAndChown(root, 0710, dirID); err != nil {
+ 		return nil, err
+ 	}
+ 
+ 	// Populate the dir structure
+ 	for _, p := range paths {
+-		if err := idtools.MkdirAllAndChown(path.Join(root, p), 0701, currentID); err != nil {
++		if err := idtools.MkdirAllAndChown(path.Join(root, p), 0710, dirID); err != nil {
+ 			return nil, err
+ 		}
+ 	}
+diff --git a/components/engine/daemon/graphdriver/btrfs/btrfs.go b/components/engine/daemon/graphdriver/btrfs/btrfs.go
+index d76e14490..35e14db0f 100644
+--- a/components/engine/daemon/graphdriver/btrfs/btrfs.go
++++ b/components/engine/daemon/graphdriver/btrfs/btrfs.go
+@@ -70,7 +70,14 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 		return nil, graphdriver.ErrPrerequisites
+ 	}
+ 
+-	if err := idtools.MkdirAllAndChown(home, 0701, idtools.CurrentIdentity()); err != nil {
++	remappedRoot := idtools.NewIDMappingsFromMaps(uidMaps, gidMaps)
++	currentID := idtools.CurrentIdentity()
++	dirID := idtools.Identity{
++		UID: currentID.UID,
++		GID: remappedRoot.RootPair().GID,
++	}
++
++	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
+ 		return nil, err
+ 	}
+ 
+@@ -531,7 +538,14 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) error {
+ 	if err != nil {
+ 		return err
+ 	}
+-	if err := idtools.MkdirAllAndChown(subvolumes, 0701, idtools.CurrentIdentity()); err != nil {
++
++	currentID := idtools.CurrentIdentity()
++	dirID := idtools.Identity{
++		UID: currentID.UID,
++		GID: rootGID,
++	}
++
++	if err := idtools.MkdirAllAndChown(subvolumes, 0710, dirID); err != nil {
+ 		return err
+ 	}
+ 	if parent == "" {
+diff --git a/components/engine/daemon/graphdriver/overlay/overlay.go b/components/engine/daemon/graphdriver/overlay/overlay.go
+index a9e65a35c..566c4cc9f 100644
+--- a/components/engine/daemon/graphdriver/overlay/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay/overlay.go
+@@ -163,8 +163,18 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 		logrus.WithField("storage-driver", "overlay").Warn(overlayutils.ErrDTypeNotSupported("overlay", backingFs))
+ 	}
+ 
++	currentID := idtools.CurrentIdentity()
++	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
++	if err != nil {
++		return nil, err
++	}
++	dirID := idtools.Identity{
++		UID: currentID.UID,
++		GID: rootGID,
++	}
++
+ 	// Create the driver home dir
+-	if err := idtools.MkdirAllAndChown(home, 0701, idtools.CurrentIdentity()); err != nil {
++	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
+ 		return nil, err
+ 	}
+ 
+@@ -300,10 +310,11 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 	root := idtools.Identity{UID: rootUID, GID: rootGID}
+ 
+ 	currentID := idtools.CurrentIdentity()
+-	if err := idtools.MkdirAllAndChown(path.Dir(dir), 0701, currentID); err != nil {
+-		return err
++	dirID := idtools.Identity{
++		UID: currentID.UID,
++		GID: rootGID,
+ 	}
+-	if err := idtools.MkdirAndChown(dir, 0701, currentID); err != nil {
++	if err := idtools.MkdirAndChown(dir, 0710, dirID); err != nil {
+ 		return err
+ 	}
+ 
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 7576320ad..3a9f5ce6e 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -197,7 +197,20 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 		logger.Warn(overlayutils.ErrDTypeNotSupported("overlay2", backingFs))
+ 	}
+ 
+-	if err := idtools.MkdirAllAndChown(path.Join(home, linkDir), 0701, idtools.CurrentIdentity()); err != nil {
++	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
++	if err != nil {
++		return nil, err
++	}
++
++	cur := idtools.CurrentIdentity()
++	dirID := idtools.Identity{
++		UID: cur.UID,
++		GID: rootGID,
++	}
++	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
++		return nil, err
++	}
++	if err := idtools.MkdirAllAndChown(path.Join(home, linkDir), 0700, cur); err != nil {
+ 		return nil, err
+ 	}
+ 
+@@ -424,12 +437,15 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
+ 		return err
+ 	}
+ 	root := idtools.Identity{UID: rootUID, GID: rootGID}
+-	current := idtools.CurrentIdentity()
++	dirID := idtools.Identity{
++		UID: idtools.CurrentIdentity().UID,
++		GID: rootGID,
++	}
+ 
+-	if err := idtools.MkdirAllAndChown(path.Dir(dir), 0701, current); err != nil {
++	if err := idtools.MkdirAllAndChown(path.Dir(dir), 0710, dirID); err != nil {
+ 		return err
+ 	}
+-	if err := idtools.MkdirAndChown(dir, 0701, current); err != nil {
++	if err := idtools.MkdirAndChown(dir, 0710, dirID); err != nil {
+ 		return err
+ 	}
+ 
+diff --git a/components/engine/daemon/graphdriver/vfs/driver.go b/components/engine/daemon/graphdriver/vfs/driver.go
+index 15ac25199..3ced5d7a1 100644
+--- a/components/engine/daemon/graphdriver/vfs/driver.go
++++ b/components/engine/daemon/graphdriver/vfs/driver.go
+@@ -30,7 +30,15 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
+ 		home:      home,
+ 		idMapping: idtools.NewIDMappingsFromMaps(uidMaps, gidMaps),
+ 	}
+-	if err := idtools.MkdirAllAndChown(home, 0701, idtools.CurrentIdentity()); err != nil {
++	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
++	if err != nil {
++		return nil, err
++	}
++	dirID := idtools.Identity{
++		UID: idtools.CurrentIdentity().UID,
++		GID: rootGID,
++	}
++	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
+ 		return nil, err
+ 	}
+ 
+@@ -115,7 +123,11 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) error {
+ func (d *Driver) create(id, parent string, size uint64) error {
+ 	dir := d.dir(id)
+ 	rootIDs := d.idMapping.RootPair()
+-	if err := idtools.MkdirAllAndChown(filepath.Dir(dir), 0701, idtools.CurrentIdentity()); err != nil {
++	dirID := idtools.Identity{
++		UID: idtools.CurrentIdentity().UID,
++		GID: rootIDs.GID,
++	}
++	if err := idtools.MkdirAllAndChown(filepath.Dir(dir), 0710, dirID); err != nil {
+ 		return err
+ 	}
+ 	if err := idtools.MkdirAndChown(dir, 0755, rootIDs); err != nil {
+diff --git a/components/engine/daemon/graphdriver/zfs/zfs.go b/components/engine/daemon/graphdriver/zfs/zfs.go
+index 4484c517a..944f902f6 100644
+--- a/components/engine/daemon/graphdriver/zfs/zfs.go
++++ b/components/engine/daemon/graphdriver/zfs/zfs.go
+@@ -102,7 +102,16 @@ func Init(base string, opt []string, uidMaps, gidMaps []idtools.IDMap) (graphdri
+ 		return nil, fmt.Errorf("BUG: zfs get all -t filesystem -rHp '%s' should contain '%s'", options.fsName, options.fsName)
+ 	}
+ 
+-	if err := idtools.MkdirAllAndChown(base, 0701, idtools.CurrentIdentity()); err != nil {
++	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
++	if err != nil {
++		return nil, err
++	}
++
++	dirID := idtools.Identity{
++		UID: idtools.CurrentIdentity().UID,
++		GID: rootGID,
++	}
++	if err := idtools.MkdirAllAndChown(base, 0710, dirID); err != nil {
+ 		return nil, fmt.Errorf("Failed to create '%s': %v", base, err)
+ 	}
+ 
+-- 
+2.30.0
+
