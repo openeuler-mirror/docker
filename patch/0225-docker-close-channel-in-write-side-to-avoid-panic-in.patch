@@ -1,0 +1,38 @@
+From 548078b9e76e34c6994830ce35bee1c15e3c091f Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 21 Mar 2022 11:05:43 +0800
+Subject: [PATCH] docker: close channel in write side to avoid panic in docker
+ stats
+
+there is a situation when write event to chan c, chan c is close,
+and that will cause a panic. Close chan c in write side can avaid
+panic.
+---
+ components/cli/cli/command/container/stats.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/components/cli/cli/command/container/stats.go b/components/cli/cli/command/container/stats.go
+index 8387fc988..daab91627 100644
+--- a/components/cli/cli/command/container/stats.go
++++ b/components/cli/cli/command/container/stats.go
+@@ -60,6 +60,9 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
+ 	// monitorContainerEvents watches for container creation and removal (only
+ 	// used when calling `docker stats` without arguments).
+ 	monitorContainerEvents := func(started chan<- struct{}, c chan events.Message) {
++		// close channel in write side to avoid panic
++		defer close(c)
++
+ 		f := filters.NewArgs()
+ 		f.Add("type", "container")
+ 		options := types.EventsOptions{
+@@ -150,7 +153,6 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
+ 		eventChan := make(chan events.Message)
+ 		go eh.Watch(eventChan)
+ 		go monitorContainerEvents(started, eventChan)
+-		defer close(eventChan)
+ 		<-started
+ 
+ 		// Start a short-lived goroutine to retrieve the initial list of
+-- 
+2.23.0
+
