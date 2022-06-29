@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 301
+Release: 302
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -212,6 +212,12 @@ fi
 %endif
 
 %changelog
+* Tue Jun 28 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-302
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:fix status inconsistent after restart container
+
 * Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-301
 - Type:bugfix
 - CVE:CVE-2022-24769
