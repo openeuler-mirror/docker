@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 307
+Release: 308
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -212,6 +212,12 @@ fi
 %endif
 
 %changelog
+* Tue Sep 13 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-308
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:Add an ExitPid field for State struct to record exit process id
+
 * Tue Sep 13 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-307
 - Type:bugfix
 - CVE:NA
