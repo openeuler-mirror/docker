@@ -1,0 +1,62 @@
+From 886c1473eddbb1a56f7bae116ad155ccb7c7cfb0 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Wed, 10 Aug 2022 16:05:06 +0800
+Subject: [PATCH] docker: fix terminal abnormal after docker run
+
+when docker run -it xxx bash and exit, the terminal will be abnormal
+(no input, no output).
+The reason is in golang 1.17, Package reflect's Value methods named
+Pointer and UnsafeAddr return type uintptr instead of unsafe.
+Pointer to keep callers from changing the result to an arbitrary type
+without first importing "unsafe". However, this means that the result
+is fragile and must be converted to Pointer immediately after making the call,
+in the same expression:
+        p := (*int)(unsafe.Pointer(reflect.ValueOf(new(int)).Pointer()))
+As in the cases above, it is invalid to store the result before the conversion:
+        // INVALID: uintptr cannot be stored in variable
+        // before conversion back to Pointer.
+        u := reflect.ValueOf(new(int)).Pointer()
+        p := (*int)(unsafe.Pointer(u))
+---
+ .../vendor/golang.org/x/sys/unix/syscall_linux.go | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/components/cli/vendor/golang.org/x/sys/unix/syscall_linux.go b/components/cli/vendor/golang.org/x/sys/unix/syscall_linux.go
+index 690c2c87f..ca415b73f 100644
+--- a/components/cli/vendor/golang.org/x/sys/unix/syscall_linux.go
++++ b/components/cli/vendor/golang.org/x/sys/unix/syscall_linux.go
+@@ -73,19 +73,28 @@ func IoctlSetTermios(fd int, req uint, value *Termios) error {
+ // from fd, using the specified request number.
+ func IoctlGetInt(fd int, req uint) (int, error) {
+ 	var value int
+-	err := ioctl(fd, req, uintptr(unsafe.Pointer(&value)))
++	var err error
++	if _, _, e1 := Syscall(SYS_IOCTL, uintptr(fd), uintptr(req), uintptr(unsafe.Pointer(&value))); e1 != 0 {
++		err = errnoErr(e1)
++	}
+ 	return value, err
+ }
+ 
+ func IoctlGetWinsize(fd int, req uint) (*Winsize, error) {
+ 	var value Winsize
+-	err := ioctl(fd, req, uintptr(unsafe.Pointer(&value)))
++	var err error
++	if _, _, e1 := Syscall(SYS_IOCTL, uintptr(fd), uintptr(req), uintptr(unsafe.Pointer(&value))); e1 != 0 {
++		err = errnoErr(e1)
++	}
+ 	return &value, err
+ }
+ 
+ func IoctlGetTermios(fd int, req uint) (*Termios, error) {
+ 	var value Termios
+-	err := ioctl(fd, req, uintptr(unsafe.Pointer(&value)))
++	var err error
++	if _, _, e1 := Syscall(SYS_IOCTL, uintptr(fd), uintptr(req), uintptr(unsafe.Pointer(&value))); e1 != 0 {
++		err = errnoErr(e1)
++	}
+ 	return &value, err
+ }
+ 
+-- 
+2.23.0
+
