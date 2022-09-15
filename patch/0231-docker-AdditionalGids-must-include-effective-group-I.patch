@@ -1,0 +1,32 @@
+From 7f4258e2b8b9b769beab23246d27984ada539ac9 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Thu, 15 Sep 2022 10:33:12 +0800
+Subject: [PATCH] docker: AdditionalGids must include effective group ID
+
+otherwise this one won't be considered for permission checks
+
+Signed-off-by: Nicolas De Loof <nicolas.deloof@gmail.com>
+
+Conflict:daemon/oci_linux.go
+Reference:https://github.com/moby/moby/commit/de7af816e76a7fd3fbf06bffa6832959289fba32
+
+---
+ components/engine/daemon/oci_linux.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/oci_linux.go b/components/engine/daemon/oci_linux.go
+index 6d3bc165..2b803955 100644
+--- a/components/engine/daemon/oci_linux.go
++++ b/components/engine/daemon/oci_linux.go
+@@ -201,7 +201,7 @@ func getUser(c *container.Container, username string) (uint32, uint32, []uint32,
+ 	uid := uint32(execUser.Uid)
+ 	gid := uint32(execUser.Gid)
+ 	sgids := append(execUser.Sgids, addGroups...)
+-	var additionalGids []uint32
++	additionalGids := []uint32{gid}
+ 	for _, g := range sgids {
+ 		additionalGids = append(additionalGids, uint32(g))
+ 	}
+-- 
+2.23.0
+
