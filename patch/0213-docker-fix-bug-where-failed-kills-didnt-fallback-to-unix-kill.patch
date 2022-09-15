@@ -1,0 +1,66 @@
+From 1cbe2e6c0865f11fa264c24378bb0180cce6d414 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Wed, 22 Sep 2021 16:09:44 +0800
+Subject: [PATCH] docker:fix bug where failed kills didnt fallback to unix kill
+
+if killPossiblyDeadProcess fails, we expect to execute killProcessDirectly to
+direct kill the process. But container.Wait return err when the timeout deadline
+exceeded, and not execute the killProcessDirectly fucntion. Then docker stop will
+hang.
+---
+ components/engine/daemon/kill.go | 14 +++++++++-----
+ components/engine/daemon/stop.go |  6 ++++--
+ 2 files changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index 4c8ccf93d..593275cf8 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -153,8 +153,8 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+ 		defer cancel()
+ 
+-		if status := <-container.Wait(ctx, containerpkg.WaitConditionNotRunning); status.Err() != nil {
+-			return err
++		if status := <-container.Wait(ctx, containerpkg.WaitConditionNotRunning); status.Err() == nil {
++			return nil
+ 		}
+ 	}
+ 
+@@ -166,9 +166,13 @@ func (daemon *Daemon) Kill(container *containerpkg.Container) error {
+ 		return err
+ 	}
+ 
+-	// Wait for exit with no timeout.
+-	// Ignore returned status.
+-	<-container.Wait3(context.Background(), containerpkg.WaitConditionNotRunning, waitStop)
++	// wait for container to exit one last time, if it doesn't then kill didnt work, so return error
++	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel2()
++
++	if status := <-container.Wait3(ctx2, containerpkg.WaitConditionNotRunning, waitStop); status.Err() != nil {
++		return errors.New("tried to kill container, but did not receive an exit event")
++	}
+ 
+ 	return nil
+ }
+diff --git a/components/engine/daemon/stop.go b/components/engine/daemon/stop.go
+index 40bc36dfd..741f5d5dd 100644
+--- a/components/engine/daemon/stop.go
++++ b/components/engine/daemon/stop.go
+@@ -82,8 +82,10 @@ func (daemon *Daemon) containerStop(container *containerpkg.Container, seconds i
+ 		logrus.Infof("Container %v failed to exit within %d seconds of signal %d - using the force", container.ID, seconds, stopSignal)
+ 		// 3. If it doesn't, then send SIGKILL
+ 		if err := daemon.Kill(container); err != nil {
+-			// Wait without a timeout, ignore result.
+-			<-container.Wait(context.Background(), containerpkg.WaitConditionNotRunning)
++			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++			defer cancel()
++
++			<-container.Wait(ctx, containerpkg.WaitConditionNotRunning)
+ 			logrus.Warn(err) // Don't return error because we only care that container is stopped, not what function stopped it
+ 		}
+ 	}
+-- 
+2.27.0
+

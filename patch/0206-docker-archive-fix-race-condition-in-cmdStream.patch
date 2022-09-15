@@ -1,0 +1,79 @@
+From 782d36eae49ceff3e4fbd43c5a8112d9958dc791 Mon Sep 17 00:00:00 2001
+From: Stephen Benjamin <stephen@redhat.com>
+Date: Tue, 3 Sep 2019 10:56:45 -0400
+Subject: [PATCH] archive: [backport] fix race condition in cmdStream
+
+There is a race condition in pkg/archive when using `cmd.Start` for pigz
+and xz where the `*bufio.Reader` could be returned to the pool while the
+command is still writing to it, and then picked up and used by a new
+command.
+
+The command is wrapped in a `CommandContext` where the process will be
+killed when the context is cancelled, however this is not instantaneous,
+so there's a brief window while the command is still running but the
+`*bufio.Reader` was already returned to the pool.
+
+wrapReadCloser calls `cancel()`, and then `readBuf.Close()` which
+eventually returns the buffer to the pool. However, because cmdStream
+runs `cmd.Wait` in a go routine that we never wait for to finish, it is
+not safe to return the reader to the pool yet.  We need to ensure we
+wait for `cmd.Wait` to finish!
+
+Signed-off-by: Stephen Benjamin <stephen@redhat.com>
+(cherry picked from commit 89dd10b06efe93d4f427057f043abf560c461281)
+Signed-off-by: WangFengTu <wangfengtu@huawei.com>
+---
+ components/engine/pkg/archive/archive.go      | 12 +++++++++++-
+ components/engine/pkg/archive/archive_test.go |  4 +++-
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/pkg/archive/archive.go b/components/engine/pkg/archive/archive.go
+index 070dccb756..82cd0a6c6f 100644
+--- a/components/engine/pkg/archive/archive.go
++++ b/components/engine/pkg/archive/archive.go
+@@ -1216,6 +1216,9 @@ func cmdStream(cmd *exec.Cmd, input io.Reader) (io.ReadCloser, error) {
+ 		return nil, err
+ 	}
+ 
++	// Ensure the command has exited before we clean anything up
++	done := make(chan struct{})
++
+ 	// Copy stdout to the returned pipe
+ 	go func() {
+ 		if err := cmd.Wait(); err != nil {
+@@ -1223,9 +1226,16 @@ func cmdStream(cmd *exec.Cmd, input io.Reader) (io.ReadCloser, error) {
+ 		} else {
+ 			pipeW.Close()
+ 		}
++		close(done)
+ 	}()
+ 
+-	return pipeR, nil
++	return ioutils.NewReadCloserWrapper(pipeR, func() error {
++		// Close pipeR, and then wait for the command to complete before returning. We have to close pipeR first, as
++		// cmd.Wait waits for any non-file stdout/stderr/stdin to close.
++		err := pipeR.Close()
++		<-done
++		return err
++	}), nil
+ }
+ 
+ // NewTempArchive reads the content of src into a temporary file, and returns the contents
+diff --git a/components/engine/pkg/archive/archive_test.go b/components/engine/pkg/archive/archive_test.go
+index b448bac49a..f77b7c202d 100644
+--- a/components/engine/pkg/archive/archive_test.go
++++ b/components/engine/pkg/archive/archive_test.go
+@@ -1356,7 +1356,9 @@ func TestPigz(t *testing.T) {
+ 	_, err := exec.LookPath("unpigz")
+ 	if err == nil {
+ 		t.Log("Tested whether Pigz is used, as it installed")
+-		assert.Equal(t, reflect.TypeOf(contextReaderCloserWrapper.Reader), reflect.TypeOf(&io.PipeReader{}))
++		// For the command wait wrapper
++		cmdWaitCloserWrapper := contextReaderCloserWrapper.Reader.(*ioutils.ReadCloserWrapper)
++		assert.Equal(t, reflect.TypeOf(cmdWaitCloserWrapper.Reader), reflect.TypeOf(&io.PipeReader{}))
+ 	} else {
+ 		t.Log("Tested whether Pigz is not used, as it not installed")
+ 		assert.Equal(t, reflect.TypeOf(contextReaderCloserWrapper.Reader), reflect.TypeOf(&gzip.Reader{}))
+-- 
+2.27.0
+

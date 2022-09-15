@@ -1,0 +1,51 @@
+From 06e9b3151585573818df8d890c0be1dc576500e6 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 1 Feb 2021 16:56:40 +0800
+Subject: [PATCH] docker: fix hijack hang
+
+Change-Id: Ica0fe7806227114acfe028b44dfeed70a5dd4577
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../docker/docker/client/container_exec.go    | 18 ++++++++-
+ .../dockerd/hack/malformed_host_override.go   | 37 +++++++++++--------
+ 2 files changed, 38 insertions(+), 17 deletions(-)
+
+diff --git a/components/cli/vendor/github.com/docker/docker/client/container_exec.go b/components/cli/vendor/github.com/docker/docker/client/container_exec.go
+index 535536b1e0..ac458e9c30 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/container_exec.go
++++ b/components/cli/vendor/github.com/docker/docker/client/container_exec.go
+@@ -3,6 +3,8 @@ package client // import "github.com/docker/docker/client"
+ import (
+ 	"context"
+ 	"encoding/json"
++	"fmt"
++	"time"
+ 
+ 	"github.com/docker/docker/api/types"
+ )
+@@ -36,8 +38,20 @@ func (cli *Client) ContainerExecStart(ctx context.Context, execID string, config
+ // and the a reader to get output. It's up to the called to close
+ // the hijacked connection by calling types.HijackedResponse.Close.
+ func (cli *Client) ContainerExecAttach(ctx context.Context, execID string, config types.ExecStartCheck) (types.HijackedResponse, error) {
+-	headers := map[string][]string{"Content-Type": {"application/json"}}
+-	return cli.postHijacked(ctx, "/exec/"+execID+"/start", nil, config, headers)
++	done := make(chan struct{})
++	var resp types.HijackedResponse
++	var err error
++	go func() {
++		headers := map[string][]string{"Content-Type": {"application/json"}}
++		resp, err = cli.postHijacked(ctx, "/exec/"+execID+"/start", nil, config, headers)
++		close(done)
++	}()
++	select {
++	case <-done:
++		return resp, err
++	case <-time.After(5 * time.Minute):
++		return resp, fmt.Errorf("post exec hijacked timeout")
++	}
+ }
+ 
+ // ContainerExecInspect returns information about a specific exec process on the docker host.
+-- 
+2.17.1
+

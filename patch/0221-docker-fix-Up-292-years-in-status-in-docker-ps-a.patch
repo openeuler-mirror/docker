@@ -1,0 +1,25 @@
+From f250af43f458e27e37f2ed2690b320d5bbf80173 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 13 Dec 2021 17:20:13 +0800
+Subject: [PATCH] docker: fix "Up 292 years" in status in docker ps -a
+
+---
+ components/engine/container/state.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/container/state.go b/components/engine/container/state.go
+index e9666ed92..da19cc49e 100644
+--- a/components/engine/container/state.go
++++ b/components/engine/container/state.go
+@@ -283,7 +283,7 @@ func (s *State) SetRunning(pid int, initial bool) {
+ 	}
+ 	s.ExitCodeValue = 0
+ 	s.Pid = pid
+-	if initial {
++	if initial || s.StartedAt.IsZero() {
+ 		s.StartedAt = time.Now().UTC()
+ 	}
+ }
+-- 
+2.27.0
+
