@@ -1,0 +1,44 @@
+From 8b41a404dcb0aa7c377b18b5f0627ed379371245 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 18 Mar 2021 17:28:20 +0800
+Subject: [PATCH] docker: use info level for create/start/stop command
+
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ .../engine/api/server/middleware/debug.go       | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/api/server/middleware/debug.go b/components/engine/api/server/middleware/debug.go
+index 31165bf91..2c039aa5d 100644
+--- a/components/engine/api/server/middleware/debug.go
++++ b/components/engine/api/server/middleware/debug.go
+@@ -13,10 +13,25 @@ import (
+ 	"github.com/sirupsen/logrus"
+ )
+ 
++func isKeyCmd(method string, uri string) bool {
++	if method != "POST" {
++		return false
++	}
++	if !strings.Contains(uri, "containers") {
++		return false
++	}
++	return strings.Contains(uri, "create") || strings.Contains(uri, "start") || strings.Contains(uri, "stop") || strings.Contains(uri, "kill")
++}
++
+ // DebugRequestMiddleware dumps the request to logger
+ func DebugRequestMiddleware(handler func(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error) func(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+ 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+-		logrus.Debugf("Calling %s %s", r.Method, r.RequestURI)
++		if isKeyCmd(r.Method, r.RequestURI) {
++			agent, _ := r.Header["User-Agent"]
++			logrus.Infof("Calling %s %s agent=%v", r.Method, r.RequestURI, agent)
++		} else {
++			logrus.Debugf("Calling %s %s", r.Method, r.RequestURI)
++		}
+ 
+ 		if r.Method != "POST" {
+ 			return handler(ctx, w, r, vars)
+-- 
+2.23.0
+

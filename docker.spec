@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 119
+Release: 309
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -166,9 +166,6 @@ install -p -m 644 components/engine/contrib/syntax/nano/Dockerfile.nanorc $RPM_B
 /usr/share/zsh/vendor-completions/_docker
 /usr/share/fish/vendor_completions.d/docker.fish
 %doc
-#/%{_mandir}/man1/*
-#/%{_mandir}/man5/*
-#/%{_mandir}/man8/*
 
 %config(noreplace,missingok) /etc/sysconfig/docker
 %config(noreplace,missingok) /etc/sysconfig/docker-storage
@@ -215,6 +212,72 @@ fi
 %endif
 
 %changelog
+* Thu Sep 15 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-309
+- Type:CVE
+- CVE:CVE-2022-36109
+- SUG:NA
+- DESC:fix CVE-2022-36109
+
+* Tue Sep 13 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-308
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:Add an ExitPid field for State struct to record exit process id
+
+* Tue Sep 13 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-307
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:fix terminal abnormal after docker run
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-306
+- Type:CVE
+- CVE:CVE-2021-41092
+- SUG:NA
+- DESC:fix CVE-2021-41092
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-305
+- Type:CVE
+- CVE:CVE-2021-41091
+- SUG:NA
+- DESC:fix CVE-2021-41091
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-304
+- Type:CVE
+- CVE:CVE-2021-41089
+- SUG:NA
+- DESC:fix CVE-2021-41089
+
+* Wed Jun 29 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-303
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:close channel in write side to avoid panic in docker stats
+
+* Tue Jun 28 2022 zjw<zhongjiawei1@huawei.com> - 18.09.0-302
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:fix status inconsistent after restart container
+
+* Thu Jun 16 2022 duyiwei <duyiwei@kylinos.cn> - 18.09.0-301
+- Type:bugfix
+- CVE:CVE-2022-24769
+- SUG:NA
+- DESC:fix CVE-2022-24769
+
+* Tue Mar 22 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-300
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:sync from internal
+
+* Wed Mar 02 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-120
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:Use original process spec for execs
+
 * Tue Dec 28 2021 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-119
 - Type:bugfix
 - CVE:NA
@@ -261,14 +324,14 @@ fi
 - SUG:restart
 - DESC:remove go-md2man build require
 
-* Mon Jan 4 2021 yangyanchao<yangyanchao6@huawei.com> - 18.09.0-111
+* Mon Jan 18 2021 yangyanchao<yangyanchao6@huawei.com> - 18.09.0-111
 - Type:requirement
 - ID:NA
 - CVE:NA
 - SUG:restart
 - docker:components:add config files for riscv
 
-* Mon Jan 18 2021 jingrui<jingrui@huawei.com> - 18.09.0-107
+* Mon Jan 4 2021 jingrui<jingrui@huawei.com> - 18.09.0-107
 - Type:bugfix
 - ID:NA
 - SUG:NA
