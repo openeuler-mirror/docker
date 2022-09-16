@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 309
+Release: 310
 Summary: The open-source application container engine
 Group: Tools/Docker
 
@@ -212,6 +212,12 @@ fi
 %endif
 
 %changelog
+* Thu Sep 15 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-310
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:ensure layer digest folder removed if ls.driver.Remove fails
+
 * Thu Sep 15 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-309
 - Type:CVE
 - CVE:CVE-2022-36109
