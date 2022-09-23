@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 243
+Release: 244
 Epoch: 1
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -91,7 +91,7 @@ install -p -m 755 /usr/bin/containerd $RPM_BUILD_ROOT/%{_bindir}/containerd
 install -p -m 755 /usr/bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 
 # install runc
-install -p -m 755 /usr/local/bin/runc  $RPM_BUILD_ROOT/%{_bindir}/runc
+install -p -m 755 /usr/bin/runc  $RPM_BUILD_ROOT/%{_bindir}/runc
 
 # install udev rules
 install -d $RPM_BUILD_ROOT/%{_sysconfdir}/udev/rules.d
@@ -199,6 +199,12 @@ fi
 %endif
 
 %changelog
+* Sat Oct 15 2022 DCCooper <1866858@gmail.com> - 18.09.0-244
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:change runc original install location (/usr/local/bin --> /usr/bin) to fix compile problem
+
 * Wed Sep 21 2022 chenjiankun <chenjiankun1@huawei.com> - 18.09.0-243
 - Type:bugfix
 - CVE:NA
