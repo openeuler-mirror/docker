@@ -199,6 +199,12 @@ fi
 %endif
 
 %changelog
+* Tue Nov 22 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-245
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:cleanup netns file when stop docker daemon
+
 * Sat Oct 15 2022 DCCooper <1866858@gmail.com> - 18.09.0-244
 - Type:bugfix
 - CVE:NA
