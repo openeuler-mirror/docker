@@ -1,0 +1,38 @@
+From 26f9b14362ee9859e221e73e57b73abbe7f812f8 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Thu, 8 Sep 2022 20:41:30 +0800
+Subject: [PATCH] docker: cleanup netns file when close docker daemon
+
+When the docker daemon shutdown, if LiveRestoreEnabled is true and
+there are containers still running, we will not call the netns GC
+and will cause netns file leak. We need to call netns GC manually.
+---
+ components/engine/daemon/daemon.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 5c6be8e45..6e3477bf5 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -70,6 +70,7 @@ import (
+ 	"github.com/docker/libnetwork"
+ 	"github.com/docker/libnetwork/cluster"
+ 	nwconfig "github.com/docker/libnetwork/config"
++	"github.com/docker/libnetwork/osl"
+ 	"github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/pkg/errors"
+ )
+@@ -1295,6 +1296,10 @@ func (daemon *Daemon) ShutdownTimeout() int {
+ // Shutdown stops the daemon.
+ func (daemon *Daemon) Shutdown() error {
+ 	daemon.shutdown = true
++
++	// netns file in GC need some cleanup first
++	osl.GC()
++
+ 	// Keep mounts and networking running on daemon shutdown if
+ 	// we are to keep containers running and restore them.
+ 
+-- 
+2.23.0
+
