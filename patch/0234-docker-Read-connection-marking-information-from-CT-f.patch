@@ -1,0 +1,96 @@
+From 9765477e687597b59f7119abf0b495ef6497986c Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Tue, 8 Nov 2022 15:17:58 +0800
+From: GopiKrishna Kodali <gkodali@zededa.com>
+Date: Wed, 12 Jun 2019 10:56:30 +0530
+Subject: [PATCH] docker: Read connection marking information from CT flow TLV
+
+Conflict:conntrack_linux.go
+Reference:https://github.com/vishvananda/netlink/commit/941b4de9e151f1c3662f3f1fa23ec263999f09de
+
+---
+ .../vishvananda/netlink/conntrack_linux.go    | 55 ++++++++++---------
+ 1 file changed, 28 insertions(+), 27 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/vishvananda/netlink/conntrack_linux.go b/components/engine/vendor/github.com/vishvananda/netlink/conntrack_linux.go
+index ecf044565..efb686e79 100644
+--- a/components/engine/vendor/github.com/vishvananda/netlink/conntrack_linux.go
++++ b/components/engine/vendor/github.com/vishvananda/netlink/conntrack_linux.go
+@@ -220,9 +220,17 @@ func parseBERaw16(r *bytes.Reader, v *uint16) {
+ 	binary.Read(r, binary.BigEndian, v)
+ }
+ 
++func parseBERaw32(r *bytes.Reader, v *uint32) {
++	binary.Read(r, binary.BigEndian, v)
++}
++
++func parseConnectionMark(r *bytes.Reader) (mark uint32) {
++	parseBERaw32(r, &mark)
++	return
++}
++
+ func parseRawData(data []byte) *ConntrackFlow {
+ 	s := &ConntrackFlow{}
+-	var proto uint8
+ 	// First there is the Nfgenmsg header
+ 	// consume only the family field
+ 	reader := bytes.NewReader(data)
+@@ -238,36 +246,29 @@ func parseRawData(data []byte) *ConntrackFlow {
+ 	// <len, NLA_F_NESTED|CTA_TUPLE_IP> 4 bytes
+ 	// flow information of the reverse flow
+ 	for reader.Len() > 0 {
+-		nested, t, l := parseNfAttrTL(reader)
+-		if nested && t == nl.CTA_TUPLE_ORIG {
+-			if nested, t, _ = parseNfAttrTL(reader); nested && t == nl.CTA_TUPLE_IP {
+-				proto = parseIpTuple(reader, &s.Forward)
++		if nested, t, l := parseNfAttrTL(reader); nested {
++			if t == nl.CTA_TUPLE_ORIG {
++				if nested, t, _ = parseNfAttrTL(reader); nested && t == nl.CTA_TUPLE_IP {
++					parseIpTuple(reader, &s.Forward)
++				}
++			} else if t == nl.CTA_TUPLE_REPLY {
++				if nested, t, _ = parseNfAttrTL(reader); nested && t == nl.CTA_TUPLE_IP {
++					parseIpTuple(reader, &s.Reverse)
++
++					// Got all the useful information stop parsing
++					break
++				} else {
++					// Header not recognized skip it
++					reader.Seek(int64(l), seekCurrent)
++				}
+ 			}
+-		} else if nested && t == nl.CTA_TUPLE_REPLY {
+-			if nested, t, _ = parseNfAttrTL(reader); nested && t == nl.CTA_TUPLE_IP {
+-				parseIpTuple(reader, &s.Reverse)
+-
+-				// Got all the useful information stop parsing
+-				break
+-			} else {
+-				// Header not recognized skip it
+-				reader.Seek(int64(l), seekCurrent)
++		} else {
++			switch t {
++			case nl.CTA_MARK:
++				s.Mark = parseConnectionMark(reader)
+ 			}
+ 		}
+ 	}
+-	if proto == TCP_PROTO {
+-		reader.Seek(64, seekCurrent)
+-		_, t, _, v := parseNfAttrTLV(reader)
+-		if t == nl.CTA_MARK {
+-			s.Mark = uint32(v[3])
+-		}
+-	} else if proto == UDP_PROTO {
+-		reader.Seek(16, seekCurrent)
+-		_, t, _, v := parseNfAttrTLV(reader)
+-		if t == nl.CTA_MARK {
+-			s.Mark = uint32(v[3])
+-		}
+-	}
+ 	return s
+ }
+ 
+-- 
+2.23.0
+
