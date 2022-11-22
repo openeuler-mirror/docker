@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 312
+Release: 313
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -22,7 +22,7 @@ URL: https://mobyproject.org
 # most are already in the container (see contrib/builder/rpm/ARCH/generate.sh)
 BuildRequires: pkgconfig(systemd) golang >= 1.8.3 btrfs-progs-devel device-mapper-devel glibc-static libseccomp-devel
 BuildRequires: libselinux-devel libtool-ltdl-devel pkgconfig selinux-policy selinux-policy-devel sqlite-devel systemd-devel
-BuildRequires: tar containerd docker-runc docker-proxy
+BuildRequires: tar containerd docker-runc docker-proxy git
 
 # required packages on install
 Requires: /bin/sh iptables libcgroup tar xz device-mapper-libs >= 1.02.90-1 systemd-units
@@ -213,6 +213,12 @@ fi
 %endif
 
 %changelog
+* Tue Nov 22 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-313
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:cleanup netns file when stop docker daemon
+
 * Mon Oct 17 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-312
 - Type:bugfix
 - CVE:NA
