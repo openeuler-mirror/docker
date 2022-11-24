@@ -21,7 +21,7 @@ index d504032..86d0e3a 100755
  PLATFORM=${PLATFORM:-}
  VERSION=${VERSION:-"unknown-version"}
 -EULERVERSION=${EULERVERSION:-$(cat VERSION-EULER)}
-+EULERVERSION=${EULERVERSION:-$(cat VERSION-openeuler)}
++EULERVERSION=${EULERVERSION:-$(cat VERSION-vendor)}
  GITCOMMIT=${GITCOMMIT:-$(git rev-parse --short HEAD 2> /dev/null || true)}
  BUILDTIME=${BUILDTIME:-$(date --utc --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')}
  
@@ -34,7 +34,7 @@ index fa87d91..686e688 100755
  )
  
 -VERSION_EULER=$(< ./VERSION-EULER)
-+VERSION_EULER=$(< ./VERSION-openeuler)
++VERSION_EULER=$(< ./VERSION-vendor)
  VERSION=${VERSION:-dev}
  ! BUILDTIME=$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')
  if [ "$DOCKER_GITCOMMIT" ]; then
