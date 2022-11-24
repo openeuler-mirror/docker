@@ -39,8 +39,8 @@ if [ "$1" == "selinux" ]; then
     cp -rf $src/components/engine/contrib/selinux-euleros/docker-engine-selinux/* .
 else
     cp -rf $src/* .
-    cp -rf VERSION-openeuler $cwd/components/cli/
-    cp -rf VERSION-openeuler $cwd/components/engine/
+    cp -rf VERSION-vendor $cwd/components/cli/
+    cp -rf VERSION-vendor $cwd/components/engine/
     cp -rf git-commit $cwd/components/cli/
     cp -rf git-commit $cwd/components/engine/
 fi
