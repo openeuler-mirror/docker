@@ -16,7 +16,7 @@ index 86d0e3a..a23e379 100755
 @@ -4,7 +4,7 @@ set -eu
  PLATFORM=${PLATFORM:-}
  VERSION=${VERSION:-"unknown-version"}
- EULERVERSION=${EULERVERSION:-$(cat VERSION-openeuler)}
+ EULERVERSION=${EULERVERSION:-$(cat VERSION-vendor)}
 -GITCOMMIT=${GITCOMMIT:-$(git rev-parse --short HEAD 2> /dev/null || true)}
 +GITCOMMIT=${GITCOMMIT:-$(cat git-commit | head -c 7)}
  BUILDTIME=${BUILDTIME:-$(date --utc --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')}
@@ -27,7 +27,7 @@ index 686e688..f4a51e7 100755
 --- a/components/engine/hack/make.sh
 +++ b/components/engine/hack/make.sh
 @@ -68,6 +68,7 @@ DEFAULT_BUNDLES=(
- VERSION_EULER=$(< ./VERSION-openeuler)
+ VERSION_EULER=$(< ./VERSION-vendor)
  VERSION=${VERSION:-dev}
  ! BUILDTIME=$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" --rfc-3339 ns 2> /dev/null | sed -e 's/ /T/')
 +DOCKER_GITCOMMIT=$(cat git-commit | head -c 7)

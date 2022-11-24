@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 314
+Release: 315
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -11,7 +11,7 @@ Source1: patch.tar.gz
 Source2: apply-patches
 Source3: git-commit
 Source4: series.conf
-Source5: VERSION-openeuler
+Source5: VERSION-vendor
 Source6: gen-commit.sh
 
 URL: https://mobyproject.org
@@ -213,6 +213,12 @@ fi
 %endif
 
 %changelog
+* Thu Nov 24 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-315
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:using VERSION-vendor to record version
+
 * Tue Nov 22 2022 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-314
 - Type:bugfix
 - CVE:NA
