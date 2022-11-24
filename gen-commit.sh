@@ -14,7 +14,7 @@ echo "${changeID}" > git-commit
 old_version=`head -n 10 docker.spec|grep Release|awk '{print $2}'`
 let new_version=$old_version+1
 sed  -i -e "s/^\Release: $old_version/Release: $new_version/g" ./*.spec
-echo 18.09.0.$new_version > VERSION-openeuler
+echo 18.09.0.$new_version > VERSION-vendor
 
 author=$(git config user.name)
 email=$(git config user.email)
