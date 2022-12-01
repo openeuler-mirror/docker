@@ -1,0 +1,60 @@
+From b1151e821dd3510b88c67db5694f06fa6c772767 Mon Sep 17 00:00:00 2001
+From: zhongjiawei <zhongjiawei1@huawei.com>
+Date: Thu, 1 Dec 2022 15:09:28 +0800
+Subject: [PATCH] docker:do not stop health check before sending signal
+
+---
+ components/engine/daemon/kill.go              |  2 --
+ .../integration-cli/docker_cli_health_test.go | 26 +++++++++++++++++++
+ 2 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/kill.go b/components/engine/daemon/kill.go
+index cb0ec61d..13079a60 100644
+--- a/components/engine/daemon/kill.go
++++ b/components/engine/daemon/kill.go
+@@ -64,8 +64,6 @@ func (daemon *Daemon) killWithSignal(container *containerpkg.Container, sig int)
+ 	container.Lock()
+ 	defer container.Unlock()
+ 
+-	daemon.stopHealthchecks(container)
+-
+ 	// We could unpause the container for them rather than returning this error
+ 	if container.Paused {
+ 		return fmt.Errorf("Container %s is paused. Unpause the container before stopping or killing", container.ID)
+diff --git a/components/engine/integration-cli/docker_cli_health_test.go b/components/engine/integration-cli/docker_cli_health_test.go
+index 4fb63994..2b5b3672 100644
+--- a/components/engine/integration-cli/docker_cli_health_test.go
++++ b/components/engine/integration-cli/docker_cli_health_test.go
+@@ -165,3 +165,29 @@ ENTRYPOINT /bin/sh -c "sleep 600"`))
+ 	waitForHealthStatus(c, name, "starting", "healthy")
+ 
+ }
++
++// GitHub #37263
++func (s *DockerSuite) TestHealthKillContainer(c *check.C) {
++        testRequires(c, DaemonIsLinux) // busybox doesn't work on Windows
++
++        imageName := "testhealth"
++        buildImageSuccessfully(c, imageName, build.WithDockerfile(`FROM busybox
++HEALTHCHECK --interval=1s --timeout=5s --retries=5 CMD /bin/sh -c "sleep 1"
++ENTRYPOINT /bin/sh -c "sleep 600"`))
++
++        name := "test_health_kill"
++        dockerCmd(c, "run", "-d", "--name", name, imageName)
++        defer func() {
++                dockerCmd(c, "rm", "-f", name)
++                dockerCmd(c, "rmi", imageName)
++        }()
++
++        // Start
++        dockerCmd(c, "start", name)
++        waitForHealthStatus(c, name, "starting", "healthy")
++
++        dockerCmd(c, "kill", "-s", "SIGINT", name)
++        out, _ := dockerCmd(c, "inspect", "--format={{.State.Health.Status}}", name)
++        c.Check(out, checker.Equals, "healthy\n")
++
++}
+-- 
+2.30.0
+
