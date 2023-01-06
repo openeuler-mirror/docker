@@ -1,0 +1,26 @@
+From d7e314f23e670513780f513c0bc95cff18d4bb05 Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Fri, 6 Jan 2023 01:41:35 +0000
+Subject: [PATCH] add loong64 support for netns
+
+---
+ .../github.com/vishvananda/netns/netns_linux_loong64.go    | 7 +++++++
+ 1 file changed, 7 insertions(+)
+ create mode 100644 components/engine/vendor/github.com/vishvananda/netns/netns_linux_loong64.go
+
+diff --git a/components/engine/vendor/github.com/vishvananda/netns/netns_linux_loong64.go b/components/engine/vendor/github.com/vishvananda/netns/netns_linux_loong64.go
+new file mode 100644
+index 00000000..111209ae
+--- /dev/null
++++ b/components/engine/vendor/github.com/vishvananda/netns/netns_linux_loong64.go
+@@ -0,0 +1,7 @@
++// +build linux,loong64
++
++package netns
++
++const (
++	SYS_SETNS = 268
++)
+-- 
+2.33.0
+
