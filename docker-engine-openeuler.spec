@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 248
+Release: 249
 Epoch: 1
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -199,6 +199,12 @@ fi
 %endif
 
 %changelog
+* Fri Feb 17 2023 chenjiankun<chenjiankun1@huawei.com>- 18.09.0-249
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:set freezer.state to Thawed to increase freeze chances
+
 * Thu Dec 01 2022 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-248
 - Type:bugfix
 - CVE:NA
