@@ -1,0 +1,54 @@
+From a1e170db821863c8a8062f599fab64d6c1d95210 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Fri, 13 Jan 2023 17:13:22 +0800
+Subject: [PATCH] docker: set freezer.state to Thawed to increase freeze
+ chances
+
+docker pause/unpause with parallel docker exec can lead to freezing
+state, set freezer.state to Thawed to increase freeze chances
+---
+ components/engine/daemon/freezer/freezer.go | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/components/engine/daemon/freezer/freezer.go b/components/engine/daemon/freezer/freezer.go
+index 6df176f2f..fde134887 100644
+--- a/components/engine/daemon/freezer/freezer.go
++++ b/components/engine/daemon/freezer/freezer.go
+@@ -186,6 +186,7 @@ func (f *freezer) updateCgroup(state string) error {
+ 	timeout := time.After(30 * time.Second)
+ 	ticker := time.NewTicker(1 * time.Millisecond)
+ 	defer ticker.Stop()
++	count := 0
+ 	for {
+ 		select {
+ 		case <-timeout:
+@@ -194,6 +195,26 @@ func (f *freezer) updateCgroup(state string) error {
+ 			}
+ 			return fmt.Errorf("update freezer cgroup timeout for 30s")
+ 		case <-ticker.C:
++			// As per older kernel docs (freezer-subsystem.txt before
++			// kernel commit ef9fe980c6fcc1821), if FREEZING is seen,
++			// userspace should either retry or thaw. While current
++			// kernel cgroup v1 docs no longer mention a need to retry,
++			// the kernel (tested on v5.4, Ubuntu 20.04) can't reliably
++			// freeze a cgroup while new processes keep appearing in it
++			// (either via fork/clone or by writing new PIDs to
++			// cgroup.procs).
++			//
++			// The numbers below are chosen to have a decent chance to
++			// succeed even in the worst case scenario (docker pause/unpause
++			// with parallel docker exec).
++			//
++			// Adding any amount of sleep in between retries did not
++			// increase the chances of successful freeze.
++			if count++; count % 50 == 0 && state == string(configs.Frozen) {
++				writeFile(f.path, "freezer.state", string(configs.Thawed))
++				time.Sleep(10 * time.Millisecond)
++			}
++
+ 			// In case this loop does not exit because it doesn't get the expected
+ 			// state, let's write again this state, hoping it's going to be properly
+ 			// set this time. Otherwise, this loop could run infinitely, waiting for
+-- 
+2.23.0
+
