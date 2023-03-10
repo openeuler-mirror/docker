@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 317
+Release: 318
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -213,6 +213,12 @@ fi
 %endif
 
 %changelog
+* Fri Mar 10 2023 Song Zhang<zhangsong34@huawei.com> - 18.09.0-318
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:docker stats: fix 'panic: close of closed channel'
+
 * Fri Feb 17 2023 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-317
 - Type:bugfix
 - CVE:NA
