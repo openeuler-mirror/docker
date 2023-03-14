@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 318
+Release: 319
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -213,6 +213,12 @@ fi
 %endif
 
 %changelog
+* Tue Mar 14 2023 JackChan8<chenjiankun1@huawei.com> - 18.09.0-319
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:fix container missing after restarting dockerd twice
+
 * Fri Mar 10 2023 Song Zhang<zhangsong34@huawei.com> - 18.09.0-318
 - Type:bugfix
 - CVE:NA
