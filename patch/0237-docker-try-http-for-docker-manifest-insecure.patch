@@ -1,0 +1,49 @@
+From a4a2d8fb4cf083fd1357f9b271b368f1c2d7744c Mon Sep 17 00:00:00 2001
+From: Tengfei Wang <tfwang@alauda.io>
+Date: Tue, 24 Mar 2020 23:42:33 +0800
+Subject: [PATCH] try http for docker manifest --insecure
+
+Signed-off-by: Tengfei Wang <tfwang@alauda.io>
+---
+ components/cli/cli/registry/client/client.go | 21 +++++++++++++++-----
+ 1 file changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/components/cli/cli/registry/client/client.go b/components/cli/cli/registry/client/client.go
+index 6fd18a897..3ed139840 100644
+--- a/components/cli/cli/registry/client/client.go
++++ b/components/cli/cli/registry/client/client.go
+@@ -138,15 +138,26 @@ func (c *client) GetTags(ctx context.Context, ref reference.Named) ([]string, er
+ }
+ 
+ func (c *client) getRepositoryForReference(ctx context.Context, ref reference.Named, repoEndpoint repositoryEndpoint) (distribution.Repository, error) {
++	repoName, err := reference.WithName(repoEndpoint.Name())
++	if err != nil {
++		return nil, errors.Wrapf(err, "failed to parse repo name from %s", ref)
++	}
+ 	httpTransport, err := c.getHTTPTransportForRepoEndpoint(ctx, repoEndpoint)
+ 	if err != nil {
+-		if strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
++		if !strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
++			return nil, err
++		}
++		if !repoEndpoint.endpoint.TLSConfig.InsecureSkipVerify {
+ 			return nil, ErrHTTPProto{OrigErr: err.Error()}
+ 		}
+-	}
+-	repoName, err := reference.WithName(repoEndpoint.Name())
+-	if err != nil {
+-		return nil, errors.Wrapf(err, "failed to parse repo name from %s", ref)
++		// --insecure was set; fall back to plain HTTP
++		if url := repoEndpoint.endpoint.URL; url != nil && url.Scheme == "https" {
++			url.Scheme = "http"
++			httpTransport, err = c.getHTTPTransportForRepoEndpoint(ctx, repoEndpoint)
++			if err != nil {
++				return nil, err
++			}
++		}
+ 	}
+ 	return distributionclient.NewRepository(repoName, repoEndpoint.BaseURL(), httpTransport)
+ }
+-- 
+2.33.0
+
