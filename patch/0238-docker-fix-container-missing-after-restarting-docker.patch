@@ -1,0 +1,62 @@
+From 199481834e9e8e1ab4debaae737f372ac295af22 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Fri, 17 Feb 2023 15:06:07 +0800
+Subject: [PATCH] docker: fix container missing after restarting dockerd twice
+
+when restart dockerd and restore containers, if "no space left on device"
+in /var/lib/docker, daemon.Register will failed, and then dockerd will
+cleanup the init and rootfs layer. then if we restart dockerd again, dockerd
+will remove container dir for daemon.imageService.GetLayerByID failed. Then
+the container will disappear forever.
+---
+ components/engine/daemon/container.go | 12 +++++++++++-
+ components/engine/daemon/daemon.go    | 15 ++++++++++-----
+ 2 files changed, 21 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 6e3477bf5..96cfb14bf 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -311,10 +311,17 @@ func (daemon *Daemon) restore() error {
+ 	removeContainers := make(map[string]*container.Container)
+ 	restartContainers := make(map[*container.Container]chan struct{})
+ 	activeSandboxes := make(map[string]interface{})
++
++	containerIDs := make(map[string]struct{})
++	for cid, _ := range containers {
++		containerIDs[cid] = struct{}{}
++	}
++
+ 	for id, c := range containers {
+ 		if err := daemon.registerName(c); err != nil {
+ 			logrus.Errorf("Failed to register container name %s: %s", c.ID, err)
+ 			delete(containers, id)
++			delete(containerIDs, id)
+ 			continue
+ 		}
+ 
+@@ -325,6 +332,9 @@ func (daemon *Daemon) restore() error {
+ 		if err := daemon.Register(c); err != nil {
+ 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
+ 			delete(containers, id)
++			if !strings.Contains(err.Error(), "no space left on device") {
++				delete(containerIDs, id)
++			}
+ 			continue
+ 		}
+ 
+@@ -528,11 +538,6 @@ func (daemon *Daemon) restore() error {
+ 		logrus.Errorf("removeRedundantMounts failed %v", err)
+ 	}
+ 
+-	containerIDs := make(map[string]struct{})
+-	for cid, _ := range containers {
+-		containerIDs[cid] = struct{}{}
+-	}
+-
+ 	err = daemon.imageService.LayerStoreForOS(runtime.GOOS).CleanupRedundant(containerIDs)
+ 	if err != nil {
+ 		logrus.Errorf("cleanup redundant IDs in layerStore failed %s", err)
+-- 
+2.33.0
+
