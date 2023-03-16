@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 250
+Release: 251
 Epoch: 1
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -199,6 +199,12 @@ fi
 %endif
 
 %changelog
+* Wed Mar 15 2023 zhongjiawei<zhongjiawei1@huawei.com>- 18.09.0-251
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:try http for docker manifest insecure
+
 * Wed Mar 14 2023 chenjiankun<chenjiankun1@huawei.com>- 18.09.0-250
 - Type:bugfix
 - CVE:NA
