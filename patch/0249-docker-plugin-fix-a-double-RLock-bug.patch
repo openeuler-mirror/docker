@@ -1,0 +1,29 @@
+From 2fd68d3c6bb43ba68dbc4c9fb0bb3498c825cd28 Mon Sep 17 00:00:00 2001
+From: Ziheng Liu <lzhfromustc@gmail.com>
+Date: Tue, 25 Feb 2020 13:51:13 -0500
+Subject: [PATCH 09/14] plugin: fix a double RLock bug
+
+Signed-off-by: Ziheng Liu <lzhfromustc@gmail.com>
+Upstream-commit: 34837febc42859f7e8804a3417db133c963e38b3
+Component: engine
+---
+ components/engine/plugin/store.go | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/components/engine/plugin/store.go b/components/engine/plugin/store.go
+index b862b08aba..b74772e1a6 100644
+--- a/components/engine/plugin/store.go
++++ b/components/engine/plugin/store.go
+@@ -188,9 +188,7 @@ func (ps *Store) GetAllByCap(capability string) ([]plugingetter.CompatPlugin, er
+ 	 * bypassing the daemon. For such tests, this check is necessary.
+ 	 */
+ 	if ps != nil {
+-		ps.RLock()
+ 		result = ps.getAllByCap(capability)
+-		ps.RUnlock()
+ 	}
+ 
+ 	// Lookup with legacy model
+-- 
+2.33.0
+
