@@ -1,0 +1,102 @@
+From 50af5f9c3fead1cca65c088c920d36faa5b29264 Mon Sep 17 00:00:00 2001
+From: Brian Goff <cpuguy83@gmail.com>
+Date: Tue, 7 Apr 2020 17:03:32 -0700
+Subject: [PATCH 06/14] On startup, actually shutdown the container.
+
+When a container is left running after the daemon exits (e.g. the daemon
+is SIGKILL'd or crashes), it should stop any running containers when the
+daemon starts back up.
+
+What actually happens is the daemon only sends the container's
+configured stop signal and does not check if it has exited.
+If the container does not actually exit then it is left running.
+
+This fixes this unexpected behavior by calling the same function to shut
+down the container that the daemon shutdown process does.
+
+Signed-off-by: Brian Goff <cpuguy83@gmail.com>
+Upstream-commit: ced91bee4b54c6acc3271e6ed28e0496a344321f
+Component: engine
+---
+ components/engine/daemon/daemon.go            |  3 +-
+ .../integration/container/daemon_test.go      | 51 +++++++++++++++++++
+ 2 files changed, 53 insertions(+), 1 deletion(-)
+ create mode 100644 components/engine/integration/container/daemon_test.go
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 96cfb14bf8..8754492cef 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -397,10 +397,11 @@ func (daemon *Daemon) restore() error {
+ 					return
+ 				}
+ 			} else if !daemon.configStore.LiveRestoreEnabled {
+-				if err := daemon.kill(c, c.StopSignal()); err != nil && !errdefs.IsNotFound(err) {
++				if err := daemon.shutdownContainer(c); err != nil && !errdefs.IsNotFound(err) {
+ 					logrus.WithError(err).WithField("container", c.ID).Error("error shutting down container")
+ 					return
+ 				}
++				c.ResetRestartManager(false)
+ 			}
+ 
+ 			if alive && !c.IsRunning() && pid > 1 {
+diff --git a/components/engine/integration/container/daemon_test.go b/components/engine/integration/container/daemon_test.go
+new file mode 100644
+index 0000000000..94468a4409
+--- /dev/null
++++ b/components/engine/integration/container/daemon_test.go
+@@ -0,0 +1,51 @@
++package container
++
++import (
++	"context"
++	"testing"
++
++	"github.com/docker/docker/api/types"
++	"github.com/docker/docker/integration/internal/container"
++	"github.com/docker/docker/testutil/daemon"
++	"gotest.tools/v3/assert"
++	is "gotest.tools/v3/assert/cmp"
++	"gotest.tools/v3/skip"
++)
++
++// Make sure a container that does not exit when it upon receiving it's stop signal is actually shutdown on daemon
++// startup.
++func TestContainerKillOnDaemonStart(t *testing.T) {
++	skip.If(t, testEnv.IsRemoteDaemon, "cannot start daemon on remote test run")
++	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
++	skip.If(t, testEnv.IsRootless, "scenario doesn't work with rootless mode")
++
++	t.Parallel()
++
++	d := daemon.New(t)
++	defer d.Cleanup(t)
++
++	d.StartWithBusybox(t, "--iptables=false")
++	defer d.Stop(t)
++
++	client := d.NewClientT(t)
++	ctx := context.Background()
++
++	// The intention of this container is to ignore stop signals.
++	// Sadly this means the test will take longer, but at least this test can be parallelized.
++	id := container.Run(ctx, t, client, container.WithCmd("/bin/sh", "-c", "while true; do echo hello; sleep 1; done"))
++	defer func() {
++		err := client.ContainerRemove(ctx, id, types.ContainerRemoveOptions{Force: true})
++		assert.NilError(t, err)
++	}()
++
++	inspect, err := client.ContainerInspect(ctx, id)
++	assert.NilError(t, err)
++	assert.Assert(t, inspect.State.Running)
++
++	assert.NilError(t, d.Kill())
++	d.Start(t)
++
++	inspect, err = client.ContainerInspect(ctx, id)
++	assert.Check(t, is.Nil(err))
++	assert.Assert(t, !inspect.State.Running)
++}
+-- 
+2.33.0
+
