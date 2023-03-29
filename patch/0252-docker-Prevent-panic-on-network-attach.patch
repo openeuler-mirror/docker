@@ -1,0 +1,82 @@
+From 8d0cbacc2f9153bf95c71189455e2488b49c328b Mon Sep 17 00:00:00 2001
+From: Sebastiaan van Stijn <github@gone.nl>
+Date: Mon, 22 Jul 2019 14:44:04 +0200
+Subject: [PATCH 12/14] Prevent panic on network attach
+
+In situations where `container.NetworkSettings` was not nil, but
+`container.NetworkSettings.Networks` was, a panic could occur:
+
+```
+2019-06-10 15:26:50.548309 I | http: panic serving @: assignment to entry in nil map
+goroutine 1376 [running]:
+net/http.(*conn).serve.func1(0xc4211068c0)
+	/usr/local/go/src/net/http/server.go:1726 +0xd2
+panic(0x558939d7e1e0, 0x55893a0c4410)
+	/usr/local/go/src/runtime/panic.go:502 +0x22d
+github.com/docker/docker/daemon.(*Daemon).updateNetworkSettings(0xc42090c5a0, 0xc420fb6fc0, 0x55893a101140, 0xc4210e0540, 0xc42112aa80, 0xc4217d77a0, 0x0)
+	/go/src/github.com/docker/docker/daemon/container_operations.go:275 +0x40e
+github.com/docker/docker/daemon.(*Daemon).updateNetworkConfig(0xc42090c5a0, 0xc420fb6fc0, 0x55893a101140, 0xc4210e0540, 0xc42112aa80, 0x55893a101101, 0xc4210e0540, 0x0)
+	/go/src/github.com/docker/docker/daemon/container_operations.go:683 +0x219
+github.com/docker/docker/daemon.(*Daemon).connectToNetwork(0xc42090c5a0, 0xc420fb6fc0, 0xc420e8290f, 0x40, 0xc42112aa80, 0x558937eabd01, 0x0, 0x0)
+	/go/src/github.com/docker/docker/daemon/container_operations.go:728 +0x1cb
+github.com/docker/docker/daemon.(*Daemon).ConnectToNetwork(0xc42090c5a0, 0xc420fb6fc0, 0xc420e8290f, 0x40, 0xc42112aa80, 0x0, 0x0)
+	/go/src/github.com/docker/docker/daemon/container_operations.go:1046 +0x2b3
+github.com/docker/docker/daemon.(*Daemon).ConnectContainerToNetwork(0xc42090c5a0, 0xc4214ca580, 0x40, 0xc420e8290f, 0x40, 0xc42112aa80, 0x2, 0xe600000000000001)
+	/go/src/github.com/docker/docker/daemon/network.go:450 +0xa1
+github.com/docker/docker/api/server/router/network.(*networkRouter).postNetworkConnect(0xc42121bbc0, 0x55893a0edee0, 0xc420de7cb0, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600, 0xc420de7980, 0x5589394707cc, 0x5)
+	/go/src/github.com/docker/docker/api/server/router/network/network_routes.go:278 +0x330
+github.com/docker/docker/api/server/router/network.(*networkRouter).(github.com/docker/docker/api/server/router/network.postNetworkConnect)-fm(0x55893a0edee0, 0xc420de7cb0, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600, 0xc420de7980, 0x558937fd89dc, 0x558939f2cec0)
+	/go/src/github.com/docker/docker/api/server/router/network/network.go:37 +0x6b
+github.com/docker/docker/api/server/middleware.ExperimentalMiddleware.WrapHandler.func1(0x55893a0edee0, 0xc420de7cb0, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600, 0xc420de7980, 0x55893a0edee0, 0xc420de7cb0)
+	/go/src/github.com/docker/docker/api/server/middleware/experimental.go:26 +0xda
+github.com/docker/docker/api/server/middleware.VersionMiddleware.WrapHandler.func1(0x55893a0edee0, 0xc420de7a70, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600, 0xc420de7980, 0x0, 0x0)
+	/go/src/github.com/docker/docker/api/server/middleware/version.go:62 +0x401
+github.com/docker/docker/pkg/authorization.(*Middleware).WrapHandler.func1(0x55893a0edee0, 0xc420de7a70, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600, 0xc420de7980, 0x0, 0x558939640868)
+	/go/src/github.com/docker/docker/pkg/authorization/middleware.go:59 +0x7ab
+github.com/docker/docker/api/server/middleware.DebugRequestMiddleware.func1(0x55893a0edee0, 0xc420de7a70, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600, 0xc420de7980, 0x55893a0edee0, 0xc420de7a70)
+	/go/src/github.com/docker/docker/api/server/middleware/debug.go:53 +0x4b8
+github.com/docker/docker/api/server.(*Server).makeHTTPHandler.func1(0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600)
+	/go/src/github.com/docker/docker/api/server/server.go:141 +0x19a
+net/http.HandlerFunc.ServeHTTP(0xc420e0c0e0, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600)
+	/usr/local/go/src/net/http/server.go:1947 +0x46
+github.com/docker/docker/vendor/github.com/gorilla/mux.(*Router).ServeHTTP(0xc420ce5950, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600)
+	/go/src/github.com/docker/docker/vendor/github.com/gorilla/mux/mux.go:103 +0x228
+github.com/docker/docker/api/server.(*routerSwapper).ServeHTTP(0xc421078330, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600)
+	/go/src/github.com/docker/docker/api/server/router_swapper.go:29 +0x72
+net/http.serverHandler.ServeHTTP(0xc420902f70, 0x55893a0ec2e0, 0xc4207f0e00, 0xc420173600)
+	/usr/local/go/src/net/http/server.go:2697 +0xbe
+net/http.(*conn).serve(0xc4211068c0, 0x55893a0ede20, 0xc420d81440)
+	/usr/local/go/src/net/http/server.go:1830 +0x653
+created by net/http.(*Server).Serve
+	/usr/local/go/src/net/http/server.go:2798 +0x27d
+```
+
+I have not been able to reproduce the situation, but preventing a panic should
+not hurt.
+
+Signed-off-by: Sebastiaan van Stijn <github@gone.nl>
+Upstream-commit: 651e694508563e6fb3e8f5d7037641cc136b2c44
+Component: engine
+---
+ components/engine/daemon/container_operations.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/container_operations.go b/components/engine/daemon/container_operations.go
+index 39b52b0374..cee4021544 100644
+--- a/components/engine/daemon/container_operations.go
++++ b/components/engine/daemon/container_operations.go
+@@ -238,7 +238,10 @@ func (daemon *Daemon) buildSandboxOptions(container *container.Container) ([]lib
+ 
+ func (daemon *Daemon) updateNetworkSettings(container *container.Container, n libnetwork.Network, endpointConfig *networktypes.EndpointSettings) error {
+ 	if container.NetworkSettings == nil {
+-		container.NetworkSettings = &network.Settings{Networks: make(map[string]*network.EndpointSettings)}
++		container.NetworkSettings = &network.Settings{}
++	}
++	if container.NetworkSettings.Networks == nil {
++		container.NetworkSettings.Networks = make(map[string]*network.EndpointSettings)
+ 	}
+ 
+ 	if !container.HostConfig.NetworkMode.IsHost() && containertypes.NetworkMode(n.Type()).IsHost() {
+-- 
+2.33.0
+
