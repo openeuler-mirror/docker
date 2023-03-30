@@ -1,0 +1,29 @@
+From dacea224b14852b37ea2563df022165dc58bbdaa Mon Sep 17 00:00:00 2001
+From: Tonis Tiigi <tonistiigi@gmail.com>
+Date: Fri, 3 Apr 2020 15:33:15 -0700
+Subject: [PATCH 07/14] builder: fix concurrent map write
+
+Signed-off-by: Tonis Tiigi <tonistiigi@gmail.com>
+Upstream-commit: 5ad981640f9e747e9c9d29c686084206e007f07b
+Component: engine
+---
+ components/engine/builder/builder-next/builder.go | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/components/engine/builder/builder-next/builder.go b/components/engine/builder/builder-next/builder.go
+index 1e3c7bda2f..a4f0ac7e79 100644
+--- a/components/engine/builder/builder-next/builder.go
++++ b/components/engine/builder/builder-next/builder.go
+@@ -213,7 +213,9 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
+ 		}
+ 
+ 		defer func() {
++			b.mu.Lock()
+ 			delete(b.jobs, buildID)
++			b.mu.Unlock()
+ 		}()
+ 	}
+ 
+-- 
+2.33.0
+
