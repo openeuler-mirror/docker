@@ -1,0 +1,34 @@
+From 6837bc977c1687431060a5bce88fdd3c75579275 Mon Sep 17 00:00:00 2001
+From: Tibor Vass <tibor@docker.com>
+Date: Mon, 3 Jun 2019 22:34:13 +0000
+Subject: [PATCH 13/14] build: fix panic when exporting to tar
+
+Fixes a panic on `docker build -t foo -o - . >/dev/null`
+
+Signed-off-by: Tibor Vass <tibor@docker.com>
+Upstream-commit: 6104eb1ae2890371ef0f7440514ee505d73d2c0a
+Component: engine
+---
+ components/engine/api/server/backend/build/backend.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/api/server/backend/build/backend.go b/components/engine/api/server/backend/build/backend.go
+index 33df264cca..26e5dcd16f 100644
+--- a/components/engine/api/server/backend/build/backend.go
++++ b/components/engine/api/server/backend/build/backend.go
+@@ -82,8 +82,11 @@ func (b *Backend) Build(ctx context.Context, config backend.BuildConfig) (string
+ 	if !useBuildKit {
+ 		stdout := config.ProgressWriter.StdoutFormatter
+ 		fmt.Fprintf(stdout, "Successfully built %s\n", stringid.TruncateID(imageID))
+-		err = tagger.TagImages(image.ID(imageID))
++		if imageID != "" {
++			err = tagger.TagImages(image.ID(imageID))
++		}
+ 	}
++
+ 	return imageID, err
+ }
+ 
+-- 
+2.33.0
+
