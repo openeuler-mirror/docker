@@ -1,0 +1,32 @@
+From 57b288abe57c91f7e69d59abcd1e063877ad08b8 Mon Sep 17 00:00:00 2001
+From: BurtonQin <bobbqqin@gmail.com>
+Date: Tue, 28 Apr 2020 11:37:35 -0400
+Subject: [PATCH 04/14] plugin: remove Rlock in resolvePluginID to fix double
+ Rlock
+
+Signed-off-by: BurtonQin <bobbqqin@gmail.com>
+Upstream-commit: a36db14ce0223864a46a7764fa35db1153952023
+Component: engine
+---
+ components/engine/plugin/store.go | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/components/engine/plugin/store.go b/components/engine/plugin/store.go
+index 8e96c11da4..b862b08aba 100644
+--- a/components/engine/plugin/store.go
++++ b/components/engine/plugin/store.go
+@@ -250,10 +250,8 @@ func (ps *Store) CallHandler(p *v2.Plugin) {
+ 	}
+ }
+ 
++// resolvePluginID must be protected by ps.RLock
+ func (ps *Store) resolvePluginID(idOrName string) (string, error) {
+-	ps.RLock() // todo: fix
+-	defer ps.RUnlock()
+-
+ 	if validFullID.MatchString(idOrName) {
+ 		return idOrName, nil
+ 	}
+-- 
+2.33.0
+

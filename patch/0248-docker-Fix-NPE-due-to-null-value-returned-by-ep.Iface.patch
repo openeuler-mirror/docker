@@ -1,0 +1,71 @@
+From 5a155c96e8d540640d4cd8c58371269a89359fd8 Mon Sep 17 00:00:00 2001
+From: Arko Dasgupta <arko.dasgupta@docker.com>
+Date: Thu, 2 Apr 2020 21:21:47 -0700
+Subject: [PATCH 08/14] Fix NPE due to null value returned by ep.Iface()
+
+This PR carryforwards https://github.com/moby/libnetwork/pull/2239
+and incorporates the suggestions in comments to fix the NPE and
+potential NPEs due to a null value returned by ep.Iface()
+
+Signed-off-by: Arko Dasgupta <arko.dasgupta@docker.com>
+Upstream-commit: c7f0b0152e13c95d53c9ce49a318effa50053239
+Component: engine
+---
+ .../engine/vendor/github.com/docker/libnetwork/agent.go       | 4 ++--
+ .../engine/vendor/github.com/docker/libnetwork/controller.go  | 4 ++++
+ .../engine/vendor/github.com/docker/libnetwork/network.go     | 2 +-
+ 3 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/agent.go b/components/engine/vendor/github.com/docker/libnetwork/agent.go
+index a9d77e2670..c2712778fc 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/agent.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/agent.go
+@@ -583,7 +583,7 @@ func (ep *endpoint) deleteDriverInfoFromCluster() error {
+ }
+ 
+ func (ep *endpoint) addServiceInfoToCluster(sb *sandbox) error {
+-	if ep.isAnonymous() && len(ep.myAliases) == 0 || ep.Iface().Address() == nil {
++	if ep.isAnonymous() && len(ep.myAliases) == 0 || ep.Iface() == nil || ep.Iface().Address() == nil {
+ 		return nil
+ 	}
+ 
+@@ -706,7 +706,7 @@ func (ep *endpoint) deleteServiceInfoFromCluster(sb *sandbox, fullRemove bool, m
+ 		}
+ 	}
+ 
+-	if ep.Iface().Address() != nil {
++	if ep.Iface() != nil && ep.Iface().Address() != nil {
+ 		if ep.svcID != "" {
+ 			// This is a task part of a service
+ 			var ingressPorts []*PortConfig
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/controller.go b/components/engine/vendor/github.com/docker/libnetwork/controller.go
+index 95013d31d3..fb9d38b534 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/controller.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/controller.go
+@@ -973,6 +973,10 @@ func (c *controller) reservePools() {
+ 			continue
+ 		}
+ 		for _, ep := range epl {
++			if ep.Iface() == nil {
++				logrus.Warnf("endpoint interface is empty for %q (%s)", ep.Name(), ep.ID())
++				continue
++			}
+ 			if err := ep.assignAddress(ipam, true, ep.Iface().AddressIPv6() != nil); err != nil {
+ 				logrus.Warnf("Failed to reserve current address for endpoint %q (%s) on network %q (%s)",
+ 					ep.Name(), ep.ID(), n.Name(), n.ID())
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/network.go b/components/engine/vendor/github.com/docker/libnetwork/network.go
+index 0a4a2277b0..4940aa8354 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/network.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/network.go
+@@ -1327,7 +1327,7 @@ func (n *network) EndpointByID(id string) (Endpoint, error) {
+ func (n *network) updateSvcRecord(ep *endpoint, localEps []*endpoint, isAdd bool) {
+ 	var ipv6 net.IP
+ 	epName := ep.Name()
+-	if iface := ep.Iface(); iface.Address() != nil {
++	if iface := ep.Iface(); iface != nil && iface.Address() != nil {
+ 		myAliases := ep.MyAliases()
+ 		if iface.AddressIPv6() != nil {
+ 			ipv6 = iface.AddressIPv6().IP
+-- 
+2.33.0
+
