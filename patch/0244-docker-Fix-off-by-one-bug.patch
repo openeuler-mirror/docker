@@ -1,0 +1,63 @@
+From ddf2e1ab2b60ff267a437fda133a9b9b828509fe Mon Sep 17 00:00:00 2001
+From: Oscar Bonilla <6f6231@gmail.com>
+Date: Sun, 20 Dec 2020 16:12:27 -0800
+Subject: [PATCH 03/14] Fix off-by-one bug
+
+This is a fix for https://github.com/docker/for-linux/issues/1012.
+
+The code was not considering that C strings are NULL-terminated so
+we need to leave one extra byte.
+
+Without this fix, the testcase in https://github.com/docker/for-linux/issues/1012
+fails with
+
+```
+Step 61/1001 : RUN echo 60 > 60
+ ---> Running in dde85ac3b1e3
+Removing intermediate container dde85ac3b1e3
+ ---> 80a12a18a241
+Step 62/1001 : RUN echo 61 > 61
+error creating overlay mount to /23456789112345678921234/overlay2/d368abcc97d6c6ebcf23fa71225e2011d095295d5d8c9b31d6810bea748bdf07-init/merged: no such file or directory
+```
+
+with the output of `dmesg -T` as:
+
+```
+[Sat Dec 19 02:35:40 2020] overlayfs: failed to resolve '/23456789112345678921234/overlay2/89e435a1b24583c463abb73e8abfad8bf8a88312ef8253455390c5fa0a765517-init/wor': -2
+```
+
+with this fix, you get the expected:
+
+```
+Step 126/1001 : RUN echo 125 > 125
+ ---> Running in 2f2e56da89e0
+max depth exceeded
+```
+
+Signed-off-by: Oscar Bonilla <6f6231@gmail.com>
+Upstream-commit: c923f6ac3bf61c8eb369a978b55a5d3f1fad0fbb
+Component: engine
+---
+ components/engine/daemon/graphdriver/overlay2/overlay.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/overlay2/overlay.go b/components/engine/daemon/graphdriver/overlay2/overlay.go
+index 3a9f5ce6e7..40a81ad0b0 100644
+--- a/components/engine/daemon/graphdriver/overlay2/overlay.go
++++ b/components/engine/daemon/graphdriver/overlay2/overlay.go
+@@ -714,10 +714,10 @@ func (d *Driver) Get(id, mountLabel string) (_ containerfs.ContainerFS, retErr e
+ 	// the page size. The mount syscall fails if the mount data cannot
+ 	// fit within a page and relative links make the mount data much
+ 	// smaller at the expense of requiring a fork exec to chroot.
+-	if len(mountData) > pageSize {
++	if len(mountData) > pageSize-1 {
+ 		opts = indexOff + "lowerdir=" + string(lowers) + ",upperdir=" + path.Join(id, "diff") + ",workdir=" + path.Join(id, "work")
+ 		mountData = label.FormatMountLabel(opts, mountLabel)
+-		if len(mountData) > pageSize {
++		if len(mountData) > pageSize-1 {
+ 			return nil, fmt.Errorf("cannot mount layer, mount label too large %d", len(mountData))
+ 		}
+ 
+-- 
+2.33.0
+
