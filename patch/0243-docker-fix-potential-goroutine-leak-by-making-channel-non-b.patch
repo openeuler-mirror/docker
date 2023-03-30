@@ -1,0 +1,27 @@
+From cfc3497b3612d7f4a5cb56bbf2d04fcd9d48a1d3 Mon Sep 17 00:00:00 2001
+From: Shihao Xia <charlesxsh@hotmail.com>
+Date: Thu, 26 Aug 2021 12:57:03 -0400
+Subject: [PATCH 01/14] fix potential goroutine leak by making channel
+ non-blocking Signed-off-by: Shihao Xia <charlesxsh@hotmail.com>
+ Upstream-commit: 6a72e73c1d9f991c2f3da5199b8ad221c3668515 Component: engine
+
+---
+ components/engine/container/state.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/container/state.go b/components/engine/container/state.go
+index 292b0ec0bc..c2ce0323a5 100644
+--- a/components/engine/container/state.go
++++ b/components/engine/container/state.go
+@@ -217,7 +217,7 @@ func (s *State) Wait3(ctx context.Context, condition WaitCondition, waitStop cha
+ 	// actually stopped.
+ 	waitRemove := s.waitRemove
+ 
+-	resultC := make(chan StateStatus)
++	resultC := make(chan StateStatus, 1)
+ 
+ 	go func() {
+ 		select {
+-- 
+2.33.0
+

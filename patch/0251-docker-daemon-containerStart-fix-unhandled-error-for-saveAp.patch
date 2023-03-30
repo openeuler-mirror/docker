@@ -1,0 +1,29 @@
+From 9b812e1dfa003cd937f872cc4789bcc924685604 Mon Sep 17 00:00:00 2001
+From: Sebastiaan van Stijn <github@gone.nl>
+Date: Thu, 29 Aug 2019 20:28:58 +0200
+Subject: [PATCH 11/14] daemon:containerStart() fix unhandled error for
+ saveApparmorConfig
+
+Signed-off-by: Sebastiaan van Stijn <github@gone.nl>
+Upstream-commit: 1250e42a43e5c2dd3efbcbc20c7fa3804c3dc3fb
+Component: engine
+---
+ components/engine/daemon/start.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/start.go b/components/engine/daemon/start.go
+index 7a7e2b2ee9..301639eedc 100644
+--- a/components/engine/daemon/start.go
++++ b/components/engine/daemon/start.go
+@@ -176,7 +176,7 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint
+ 		container.ResetRestartManager(true)
+ 	}
+ 
+-	if daemon.saveApparmorConfig(container); err != nil {
++	if err := daemon.saveApparmorConfig(container); err != nil {
+ 		return err
+ 	}
+ 
+-- 
+2.33.0
+
