@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 319
+Release: 323
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -227,6 +227,12 @@ fi
 %endif
 
 %changelog
+* Thu Apr 06 2023 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-323
+- Type:CVE
+- CVE:CVE-2023-28840,CVE-2023-28841,CVE-2023-28842
+- SUG:NA
+- DESC:fix CVE-2023-28840,CVE-2023-28841,CVE-2023-28842
+
 * Wed Mar 29 2023 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-319
 - Type:bugfix
 - CVE:NA
