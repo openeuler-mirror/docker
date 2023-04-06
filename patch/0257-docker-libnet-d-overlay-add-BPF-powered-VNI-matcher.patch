@@ -1,0 +1,276 @@
+From a8d7747e2ebc37b63558475b73e1d0a2dee2625e Mon Sep 17 00:00:00 2001
+From: Cory Snider <csnider@mirantis.com>
+Date: Fri, 10 Mar 2023 15:29:27 -0500
+Subject: [PATCH] libnet/d/overlay: add BPF-powered VNI matcher
+
+Some newer distros such as RHEL 9 have stopped making the xt_u32 kernel
+module available with the kernels they ship. They do ship the xt_bpf
+kernel module, which can do everything xt_u32 can and more. Add an
+alternative implementation of the iptables match rule which uses xt_bpf
+to implement exactly the same logic as the u32 filter using a BPF
+program. Try programming the BPF-powered rules as a fallback when
+programming the u32-powered rules fails.
+
+Signed-off-by: Cory Snider <csnider@mirantis.com>
+---
+ .../docker/libnetwork/drivers/overlay/bpf.go  | 47 +++++++++++++++++++
+ .../libnetwork/drivers/overlay/bpf_test.go    | 14 ++++++
+ .../libnetwork/drivers/overlay/encryption.go  | 37 +++++++++++++--
+ .../drivers/overlay/encryption_bpf.go         | 17 +++++++
+ .../drivers/overlay/encryption_u32.go         | 10 ++--
+ .../drivers/overlay/overlayutils/utils.go     | 46 ++++++++++++++++++
+ 6 files changed, 162 insertions(+), 9 deletions(-)
+ create mode 100644 components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf.go
+ create mode 100644 components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf_test.go
+ create mode 100644 components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_bpf.go
+ create mode 100644 components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/overlayutils/utils.go
+
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf.go
+new file mode 100644
+index 00000000..cb96fb7a
+--- /dev/null
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf.go
+@@ -0,0 +1,47 @@
++package overlay
++
++import (
++	"fmt"
++	"strings"
++
++	"golang.org/x/net/bpf"
++)
++
++// vniMatchBPF returns a BPF program suitable for passing to the iptables bpf
++// match which matches on the VXAN Network ID of encapsulated packets. The
++// program assumes that it will be used in a rule which only matches UDP
++// datagrams.
++func vniMatchBPF(vni uint32) []bpf.RawInstruction {
++	asm, err := bpf.Assemble([]bpf.Instruction{
++		bpf.LoadMemShift{Off: 0},                                    // ldx 4*([0] & 0xf) ; Load length of IPv4 header into X
++		bpf.LoadIndirect{Off: 12, Size: 4},                          // ld [x + 12]       ; Load VXLAN ID (UDP header + 4 bytes) into A
++		bpf.ALUOpConstant{Op: bpf.ALUOpAnd, Val: 0xffffff00},        // and #0xffffff00   ; VXLAN ID is in top 24 bits
++		bpf.JumpIf{Cond: bpf.JumpEqual, Val: vni << 8, SkipTrue: 1}, // jeq ($vni << 8), match
++		bpf.RetConstant{Val: 0},                                     // ret #0
++		bpf.RetConstant{Val: ^uint32(0)},                            // match: ret #-1
++	})
++	// bpf.Assemble() only errors if an instruction is invalid. As the only variable
++	// part of the program is an instruction value for which the entire range is
++	// valid, whether the program can be successfully assembled is independent of
++	// the input. Given that the only recourse is to fix this function and
++	// recompile, there's little value in bubbling the error up to the caller.
++	if err != nil {
++		panic(err)
++	}
++	return asm
++}
++
++// marshalXTBPF marshals a BPF program into the "decimal" byte code format
++// which is suitable for passing to the [iptables bpf match].
++//
++//	iptables -m bpf --bytecode
++//
++// [iptables bpf match]: https://ipset.netfilter.org/iptables-extensions.man.html#lbAH
++func marshalXTBPF(prog []bpf.RawInstruction) string { //nolint:unused
++	var b strings.Builder
++	fmt.Fprintf(&b, "%d", len(prog))
++	for _, ins := range prog {
++		fmt.Fprintf(&b, ",%d %d %d %d", ins.Op, ins.Jt, ins.Jf, ins.K)
++	}
++	return b.String()
++}
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf_test.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf_test.go
+new file mode 100644
+index 00000000..f636d14e
+--- /dev/null
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/bpf_test.go
+@@ -0,0 +1,14 @@
++package overlay
++
++import (
++	"testing"
++)
++
++func FuzzVNIMatchBPFDoesNotPanic(f *testing.F) {
++	for _, seed := range []uint32{0, 1, 42, 0xfffffe, 0xffffff, 0xfffffffe, 0xffffffff} {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, vni uint32) {
++		_ = vniMatchBPF(vni)
++	})
++}
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption.go
+index 20843516..513de71e 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption.go
+@@ -1,3 +1,6 @@
++//go:build linux
++// +build linux
++
+ package overlay
+ 
+ import (
+@@ -12,9 +15,11 @@ import (
+ 
+ 	"strconv"
+ 
++	"github.com/docker/libnetwork/drivers/overlay/overlayutils"
+ 	"github.com/docker/libnetwork/iptables"
+ 	"github.com/docker/libnetwork/ns"
+ 	"github.com/docker/libnetwork/types"
++	"github.com/hashicorp/go-multierror"
+ 	"github.com/sirupsen/logrus"
+ 	"github.com/vishvananda/netlink"
+ )
+@@ -226,7 +231,31 @@ func removeEncryption(localIP, remoteIP net.IP, em *encrMap) error {
+ 	return nil
+ }
+ 
+-func programMangle(vni uint32, add bool) (err error) {
++type matchVXLANFunc func(port, vni uint32) []string
++
++// programVXLANRuleFunc returns a function which tries calling programWithMatch
++// with the u32 match, falling back to the BPF match if installing u32 variant
++// of the rules fails.
++func programVXLANRuleFunc(programWithMatch func(matchVXLAN matchVXLANFunc, vni uint32, add bool) error) func(vni uint32, add bool) error {
++	return func(vni uint32, add bool) error {
++		if add {
++			if err := programWithMatch(matchVXLANWithU32, vni, add); err != nil {
++				// That didn't work. Maybe the xt_u32 module isn't available? Try again with xt_bpf.
++				err2 := programWithMatch(matchVXLANWithBPF, vni, add)
++				if err2 != nil {
++					return multierror.Append(err, err2)
++				}
++			}
++			return nil
++		} else {
++			// Delete both flavours.
++			err := programWithMatch(matchVXLANWithU32, vni, add)
++			return multierror.Append(err, programWithMatch(matchVXLANWithBPF, vni, add)).ErrorOrNil()
++		}
++	}
++}
++
++var programMangle = programVXLANRuleFunc(func(matchVXLAN matchVXLANFunc, vni uint32, add bool) (err error) {
+ 	var (
+ 		m      = strconv.FormatUint(mark, 10)
+ 		chain  = "OUTPUT"
+@@ -249,9 +278,9 @@ func programMangle(vni uint32, add bool) (err error) {
+ 	}
+ 
+ 	return
+-}
++})
+ 
+-func programInput(vni uint32, add bool) (err error) {
++var programInput = programVXLANRuleFunc(func(matchVXLAN matchVXLANFunc, vni uint32, add bool) (err error) {
+ 	var (
+ 		plainVxlan = matchVXLAN(overlayutils.VXLANUDPPort(), vni)
+ 		ipsecVxlan = append([]string{"-m", "policy", "--dir", "in", "--pol", "ipsec"}, plainVxlan...)
+@@ -278,7 +307,7 @@ func programInput(vni uint32, add bool) (err error) {
+ 	}
+ 
+ 	return
+-}
++})
+ 
+ func programSA(localIP, remoteIP net.IP, spi *spi, k *key, dir int, add bool) (fSA *netlink.XfrmState, rSA *netlink.XfrmState, err error) {
+ 	var (
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_bpf.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_bpf.go
+new file mode 100644
+index 00000000..de57c217
+--- /dev/null
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_bpf.go
+@@ -0,0 +1,17 @@
++package overlay
++
++import (
++	"strconv"
++)
++
++// matchVXLANWithBPF returns an iptables rule fragment which matches VXLAN
++// datagrams with the given destination port and VXLAN Network ID utilizing the
++// xt_bpf netfilter kernel module. The returned slice's backing array is
++// guaranteed not to alias any other slice's.
++func matchVXLANWithBPF(port, vni uint32) []string {
++	dport := strconv.FormatUint(uint64(port), 10)
++	vniMatch := marshalXTBPF(vniMatchBPF(vni))
++
++	// https://ipset.netfilter.org/iptables-extensions.man.html#lbAH
++	return []string{"-p", "udp", "--dport", dport, "-m", "bpf", "--bytecode", vniMatch}
++}
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_u32.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_u32.go
+index c93f7c96..94a74031 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_u32.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/encryption_u32.go
+@@ -5,11 +5,11 @@ import (
+ 	"strconv"
+ )
+ 
+-// matchVXLAN returns an iptables rule fragment which matches VXLAN datagrams
+-// with the given destination port and VXLAN Network ID utilizing the xt_u32
+-// netfilter kernel module. The returned slice's backing array is guaranteed not
+-// to alias any other slice's.
+-func matchVXLAN(port, vni uint32) []string {
++// matchVXLANWithU32 returns an iptables rule fragment which matches VXLAN
++// datagrams with the given destination port and VXLAN Network ID utilizing the
++// xt_u32 netfilter kernel module. The returned slice's backing array is
++// guaranteed not to alias any other slice's.
++func matchVXLANWithU32(port, vni uint32) []string {
+ 	dport := strconv.FormatUint(uint64(port), 10)
+ 
+ 	// The u32 expression language is documented in iptables-extensions(8).
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/overlayutils/utils.go b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/overlayutils/utils.go
+new file mode 100644
+index 00000000..73136e8e
+--- /dev/null
++++ b/components/engine/vendor/github.com/docker/libnetwork/drivers/overlay/overlayutils/utils.go
+@@ -0,0 +1,46 @@
++// Package overlayutils provides utility functions for overlay networks
++package overlayutils
++
++import (
++	"fmt"
++	"sync"
++)
++
++var (
++	mutex        sync.RWMutex
++	vxlanUDPPort uint32
++)
++
++const defaultVXLANUDPPort = 4789
++
++func init() {
++	vxlanUDPPort = defaultVXLANUDPPort
++}
++
++// ConfigVXLANUDPPort configures the VXLAN UDP port (data path port) number.
++// If no port is set, the default (4789) is returned. Valid port numbers are
++// between 1024 and 49151.
++func ConfigVXLANUDPPort(vxlanPort uint32) error {
++	if vxlanPort == 0 {
++		vxlanPort = defaultVXLANUDPPort
++	}
++	// IANA procedures for each range in detail
++	// The Well Known Ports, aka the System Ports, from 0-1023
++	// The Registered Ports, aka the User Ports, from 1024-49151
++	// The Dynamic Ports, aka the Private Ports, from 49152-65535
++	// So we can allow range between 1024 to 49151
++	if vxlanPort < 1024 || vxlanPort > 49151 {
++		return fmt.Errorf("VXLAN UDP port number is not in valid range (1024-49151): %d", vxlanPort)
++	}
++	mutex.Lock()
++	vxlanUDPPort = vxlanPort
++	mutex.Unlock()
++	return nil
++}
++
++// VXLANUDPPort returns Vxlan UDP port number
++func VXLANUDPPort() uint32 {
++	mutex.RLock()
++	defer mutex.RUnlock()
++	return vxlanUDPPort
++}
+-- 
+2.33.0
+
