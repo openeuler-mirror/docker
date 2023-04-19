@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 323
+Release: 324
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -13,6 +13,8 @@ Source3: git-commit
 Source4: series.conf
 Source5: VERSION-vendor
 Source6: gen-commit.sh
+Source7: net.tar.gz
+Source8: sys.tar.gz
 
 URL: https://mobyproject.org
 
@@ -67,6 +69,12 @@ export DOCKER_GITCOMMIT=$(cat git-commit | head -c 7)
 export AUTO_GOPATH=1
 export DOCKER_BUILDTAGS="pkcs11 seccomp selinux"
 cd ${WORKDIR}/components/engine
+%ifarch loongarch64
+rm -rf vendor/golang.org/x/sys
+rm -rf vendor/golang.org/x/net
+tar -xf %{SOURCE7} -C vendor/golang.org/x/
+tar -xf %{SOURCE8} -C vendor/golang.org/x/
+%endif
 ./hack/make.sh dynbinary
 
 # buid docker cli
@@ -75,6 +83,12 @@ mkdir -p .gopath/src/github.com/docker
 export GOPATH=`pwd`/.gopath
 ln -sf `pwd` .gopath/src/github.com/docker/cli
 ln -sf ${WORKDIR}/components/engine .gopath/src/github.com/docker/docker
+%ifarch loongarch64
+rm -rf vendor/golang.org/x/sys
+rm -rf vendor/golang.org/x/net
+tar -xf %{SOURCE7} -C vendor/golang.org/x/
+tar -xf %{SOURCE8} -C vendor/golang.org/x/
+%endif
 cd .gopath/src/github.com/docker/cli
 make dynbinary
 
@@ -213,6 +227,9 @@ fi
 %endif
 
 %changelog
+* Wed Apr 19 2023 yangchenguang <yangchenguang@kylinsec.com.cn> - 18.09.0-324
+- Sync 2203 support loongarch file
+
 * Thu Apr 06 2023 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-323
 - Type:CVE
 - CVE:CVE-2023-28840,CVE-2023-28841,CVE-2023-28842
