@@ -6,13 +6,14 @@ Summary: The open-source application container engine
 Group: Tools/Docker
 
 License: ASL 2.0
-Source0: https://github.com/docker/docker-ce/archive/v18.09.0.tar.gz
+Source0: v%{version}.tar.gz
 Source1: patch.tar.gz
 Source2: apply-patches
 Source3: git-commit
 Source4: series.conf
 Source5: VERSION-vendor
 Source6: gen-commit.sh
+Patch0:  fix-clang.patch
 
 URL: https://mobyproject.org
 
@@ -52,14 +53,16 @@ cp %{SOURCE2} .
 cp %{SOURCE3} .
 cp %{SOURCE4} .
 cp %{SOURCE5} .
+sh ./apply-patches
+%patch0 -p1
 
 %build
 
-sh ./apply-patches
-
 # for golang 1.17.3, we need set GO111MODULE=off
 export GO111MODULE=off
-
+%if "%toolchain" == "clang"
+export LDFLAGS=''
+%endif
 # build docker engine
 WORKDIR=$(pwd)
 export VERSION=$(cat VERSION)

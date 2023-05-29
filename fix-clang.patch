@@ -1,0 +1,23 @@
+diff -u -r BUILD/components/cli/scripts/build/dynbinary BUILD/components/cli/scripts/build/dynbinary
+--- docker-ce-18.09.0/components/cli/scripts/build/dynbinary	2023-05-25 21:31:06.000000000 +0800
++++ docker-ce-18.09.0/components/cli/scripts/build/dynbinary	2023-05-25 21:34:27.000000000 +0800
+@@ -17,6 +17,6 @@
+ ASM_FLAGS="-asmflags=-trimpath=$GOPATH"
+ 
+ set -x
+-go build $GC_FLAGS $ASM_FLAGS -o "${TARGET}" -tags pkcs11 --ldflags " -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
++go build $GC_FLAGS $ASM_FLAGS -o "${TARGET}" -tags pkcs11 --ldflags " -buildid=IdByIsula -extldflags=-Wl,-z,relro,-z,now $BEP_FLAGS ${LDFLAGS}" -buildmode=pie "${SOURCE}"
+ 
+ ln -sf "$(basename "${TARGET}")" build/docker
+diff -u -r BUILD/components/engine/hack/make/.binary BUILD/components/engine/hack/make/.binary
+--- docker-ce-18.09.0/components/engine/hack/make/.binary	2023-05-25 21:31:07.000000000 +0800
++++ docker-ce-18.09.0/components/engine/hack/make/.binary	2023-05-25 21:36:34.000000000 +0800
+@@ -70,7 +70,7 @@
+ 	-o "$DEST/$BINARY_FULLNAME" \
+ 	"${BUILDFLAGS[@]}" \
+ 	-ldflags "
+-		-buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $BEP_FLAGS
++		-buildid=IdByIsula -extldflags=-Wl,-z,relro,-z,now $BEP_FLAGS
+ 		$LDFLAGS
+ 		$LDFLAGS_STATIC_DOCKER
+ 		$DOCKER_LDFLAGS
