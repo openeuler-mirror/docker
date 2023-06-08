@@ -1,0 +1,76 @@
+From 436986d827c5ac91789d5877a40588f7af57c5b3 Mon Sep 17 00:00:00 2001
+From: zhongjiawei <zhongjiawei1@huawei.com>
+Date: Thu, 8 Jun 2023 16:25:48 +0800
+Subject: [PATCH] docker:thinpool full because kill docker daemon when docker
+
+---
+ components/engine/daemon/graphdriver/devmapper/driver.go | 8 ++++++--
+ components/engine/daemon/graphdriver/fsdiff.go           | 8 ++++++--
+ components/engine/layer/layer_store.go                   | 4 ++++
+ 3 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/driver.go b/components/engine/daemon/graphdriver/devmapper/driver.go
+index 1eade3ab..3005b84e 100644
+--- a/components/engine/daemon/graphdriver/devmapper/driver.go
++++ b/components/engine/daemon/graphdriver/devmapper/driver.go
+@@ -127,8 +127,12 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ }
+ 
+ // GetAll not implemented
+-func (a *Driver) GetAll() []string {
+-	return []string{}
++func (d *Driver) GetAll() []string {
++        ids := []string{}
++        for id, _ := range d.DeviceSet.Devices {
++                ids = append(ids, id)
++        }
++        return ids
+ }
+ 
+ // CheckParent not implemented
+diff --git a/components/engine/daemon/graphdriver/fsdiff.go b/components/engine/daemon/graphdriver/fsdiff.go
+index e1f36850..b507c180 100644
+--- a/components/engine/daemon/graphdriver/fsdiff.go
++++ b/components/engine/daemon/graphdriver/fsdiff.go
+@@ -139,7 +139,12 @@ func (gdw *NaiveDiffDriver) ApplyDiff(id, parent string, diff io.Reader) (size i
+ 	if err != nil {
+ 		return
+ 	}
+-	defer driver.Put(id)
++	defer func() {
++		err1 := driver.Put(id)
++		if err1 != nil {
++			err = err1
++		}
++	}()
+ 
+ 	layerFs := layerRootFs.Path()
+ 	options := &archive.TarOptions{UIDMaps: gdw.uidMaps,
+@@ -150,7 +155,6 @@ func (gdw *NaiveDiffDriver) ApplyDiff(id, parent string, diff io.Reader) (size i
+ 		return
+ 	}
+ 	logrus.Debugf("Untar time: %vs", time.Now().UTC().Sub(start).Seconds())
+-
+ 	return
+ }
+ 
+diff --git a/components/engine/layer/layer_store.go b/components/engine/layer/layer_store.go
+index e3030c3c..f72c667a 100644
+--- a/components/engine/layer/layer_store.go
++++ b/components/engine/layer/layer_store.go
+@@ -502,8 +502,12 @@ func (ls *layerStore) CleanupRedundant(cs map[string]struct{}) error {
+ 	ids := ls.driver.GetAll()
+ 
+ 	for _, id := range ids {
++		if id == "" {
++			continue
++		}
+ 		if _, ok := cids[id]; !ok {
+ 			logrus.Warnf("remove redundant cacheID: %s", id)
++			ls.driver.Put(id)
+ 			ls.driver.Remove(id)
+ 		}
+ 	}
+-- 
+2.33.0
+
