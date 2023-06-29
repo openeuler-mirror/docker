@@ -1,0 +1,38 @@
+From 9f1aa90a8c1b3856c4bb6ec422b8f67ac5afc31e Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 12 Jun 2023 16:09:06 +0800
+Subject: [PATCH] docker: repalce unix.Rmdir with os.RemoveAll when remove
+ mount point dir
+
+In some cases, there are some files in the mount point dir, so we can't use
+unix.Rmdir to remove mount point dir.
+---
+ components/engine/daemon/graphdriver/devmapper/driver.go | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/driver.go b/components/engine/daemon/graphdriver/devmapper/driver.go
+index 3005b84eb..a1a6e17af 100644
+--- a/components/engine/daemon/graphdriver/devmapper/driver.go
++++ b/components/engine/daemon/graphdriver/devmapper/driver.go
+@@ -19,7 +19,6 @@ import (
+ 	"github.com/docker/go-units"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
+-	"golang.org/x/sys/unix"
+ )
+ 
+ func init() {
+@@ -196,7 +195,9 @@ func (d *Driver) Remove(id string) error {
+ 	// mount point is not important and should not be treated
+ 	// as a failure to remove the container.
+ 	mp := path.Join(d.home, "mnt", id)
+-	err := unix.Rmdir(mp)
++	// In some cases, there are some files in the mount point dir, so we can't use
++	// unix.Rmdir to remove mount point dir. os.RemoveAll is more appropriate
++	err := os.RemoveAll(mp)
+ 	if err != nil && !os.IsNotExist(err) {
+ 		logrus.WithField("storage-driver", "devicemapper").Warnf("unable to remove mount point %q: %s", mp, err)
+ 	}
+-- 
+2.23.0
+
