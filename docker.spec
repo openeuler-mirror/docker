@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 325
+Release: 326
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -229,6 +229,12 @@ fi
 %endif
 
 %changelog
+* Thu Jun 29 2023 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-326
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:repalce unix.Rmdir with os.RemoveAll when remove mount point dir
+
 * Tue Jun 27 2023 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-325
 - Type:bugfix
 - CVE:NA
