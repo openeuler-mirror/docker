@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 326
+Release: 327
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -29,7 +29,7 @@ BuildRequires: libselinux-devel libtool-ltdl-devel pkgconfig selinux-policy seli
 BuildRequires: tar containerd docker-runc docker-proxy git
 
 # required packages on install
-Requires: /bin/sh iptables libcgroup tar xz device-mapper-libs >= 1.02.90-1 systemd-units
+Requires: /bin/sh iptables tar xz device-mapper-libs >= 1.02.90-1 systemd-units
 
 # conflicting packages
 Provides: docker
@@ -229,6 +229,12 @@ fi
 %endif
 
 %changelog
+* Wed Jul 12 2023 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-327
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:remove invalid libcgroup dependencies
+
 * Thu Jun 29 2023 chenjiankun<chenjiankun1@huawei.com> - 18.09.0-326
 - Type:bugfix
 - CVE:NA
