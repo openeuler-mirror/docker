@@ -1,0 +1,257 @@
+From 35723111b329490ef3d494a3e676d4244264b236 Mon Sep 17 00:00:00 2001
+From: Sebastiaan van Stijn <github@gone.nl>
+Date: Wed, 12 Jul 2023 14:15:38 +0200
+Subject: [PATCH] client: define a "dummy" hostname to use for local
+ connections
+ 
+For local communications (npipe://, unix://), the hostname is not used,
+but we need valid and meaningful hostname.
+ 
+The current code used the client's `addr` as hostname in some cases, which
+could contain the path for the unix-socket (`/var/run/docker.sock`), which
+gets rejected by go1.20.6 and go1.19.11 because of a security fix for
+[CVE-2023-29406 ][1], which was implemented in  https://go.dev/issue/60374.
+ 
+Prior versions go Go would clean the host header, and strip slashes in the
+process, but go1.20.6 and go1.19.11 no longer do, and reject the host
+header.
+ 
+This patch introduces a `DummyHost` const, and uses this dummy host for
+cases where we don't need an actual hostname.
+ 
+Before this patch (using go1.20.6):
+ 
+    make GO_VERSION=1.20.6 TEST_FILTER=TestAttach test-integration
+    === RUN   TestAttachWithTTY
+        attach_test.go:46: assertion failed: error is not nil: http: invalid Host header
+    --- FAIL: TestAttachWithTTY (0.11s)
+    === RUN   TestAttachWithoutTTy
+        attach_test.go:46: assertion failed: error is not nil: http: invalid Host header
+    --- FAIL: TestAttachWithoutTTy (0.02s)
+    FAIL
+ 
+With this patch applied:
+ 
+    make GO_VERSION=1.20.6 TEST_FILTER=TestAttach test-integration
+    INFO: Testing against a local daemon
+    === RUN   TestAttachWithTTY
+    --- PASS: TestAttachWithTTY (0.12s)
+    === RUN   TestAttachWithoutTTy
+    --- PASS: TestAttachWithoutTTy (0.02s)
+    PASS
+ 
+[1]: https://github.com/advisories/GHSA-f8f7-69v5-w4vx
+ 
+Signed-off-by: Sebastiaan van Stijn <github@gone.nl>
+
+---
+ .../github.com/docker/docker/client/client.go | 30 +++++++++++++++++++
+ .../github.com/docker/docker/client/hijack.go |  6 +++-
+ .../docker/docker/client/request.go           | 10 +++----
+ components/engine/client/client.go            | 30 +++++++++++++++++++
+ components/engine/client/hijack.go            |  6 +++-
+ components/engine/client/request.go           | 10 +++----
+ components/engine/pkg/plugins/client.go       | 14 +++++++--
+ 7 files changed, 90 insertions(+), 16 deletions(-)
+
+diff --git a/components/cli/vendor/github.com/docker/docker/client/client.go b/components/cli/vendor/github.com/docker/docker/client/client.go
+index 5031502ac..d483f670e 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/client.go
++++ b/components/cli/vendor/github.com/docker/docker/client/client.go
+@@ -60,6 +60,36 @@ import (
+ 	"github.com/pkg/errors"
+ )
+ 
++// DummyHost is a hostname used for local communication.
++//
++// It acts as a valid formatted hostname for local connections (such as "unix://"
++// or "npipe://") which do not require a hostname. It should never be resolved,
++// but uses the special-purpose ".localhost" TLD (as defined in [RFC 2606, Section 2]
++// and [RFC 6761, Section 6.3]).
++//
++// [RFC 7230, Section 5.4] defines that an empty header must be used for such
++// cases:
++//
++//	If the authority component is missing or undefined for the target URI,
++//	then a client MUST send a Host header field with an empty field-value.
++//
++// However, [Go stdlib] enforces the semantics of HTTP(S) over TCP, does not
++// allow an empty header to be used, and requires req.URL.Scheme to be either
++// "http" or "https".
++//
++// For further details, refer to:
++//
++//   - https://github.com/docker/engine-api/issues/189
++//   - https://github.com/golang/go/issues/13624
++//   - https://github.com/golang/go/issues/61076
++//   - https://github.com/moby/moby/issues/45935
++//
++// [RFC 2606, Section 2]: https://www.rfc-editor.org/rfc/rfc2606.html#section-2
++// [RFC 6761, Section 6.3]: https://www.rfc-editor.org/rfc/rfc6761#section-6.3
++// [RFC 7230, Section 5.4]: https://datatracker.ietf.org/doc/html/rfc7230#section-5.4
++// [Go stdlib]: https://github.com/golang/go/blob/6244b1946bc2101b01955468f1be502dbadd6807/src/net/http/transport.go#L558-L569
++const DummyHost = "api.moby.localhost"
++
+ // ErrRedirect is the error returned by checkRedirect when the request is non-GET.
+ var ErrRedirect = errors.New("unexpected redirect in response")
+ 
+diff --git a/components/cli/vendor/github.com/docker/docker/client/hijack.go b/components/cli/vendor/github.com/docker/docker/client/hijack.go
+index 0ac8248f2..30509fccb 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/hijack.go
++++ b/components/cli/vendor/github.com/docker/docker/client/hijack.go
+@@ -51,7 +51,11 @@ func fallbackDial(proto, addr string, tlsConfig *tls.Config) (net.Conn, error) {
+ }
+ 
+ func (cli *Client) setupHijackConn(ctx context.Context, req *http.Request, proto string) (net.Conn, error) {
+-	req.Host = cli.addr
++	req.URL.Host = cli.addr
++	if cli.proto == "unix" || cli.proto == "npipe" {
++		// Override host header for non-tcp connections.
++		req.Host = DummyHost
++	}
+ 	req.Header.Set("Connection", "Upgrade")
+ 	req.Header.Set("Upgrade", proto)
+ 
+diff --git a/components/cli/vendor/github.com/docker/docker/client/request.go b/components/cli/vendor/github.com/docker/docker/client/request.go
+index a19d62aa5..8015f572c 100644
+--- a/components/cli/vendor/github.com/docker/docker/client/request.go
++++ b/components/cli/vendor/github.com/docker/docker/client/request.go
+@@ -98,16 +98,14 @@ func (cli *Client) buildRequest(method, path string, body io.Reader, headers hea
+ 		return nil, err
+ 	}
+ 	req = cli.addHeaders(req, headers)
++        req.URL.Host = cli.addr
++        req.URL.Scheme = cli.scheme
+ 
+ 	if cli.proto == "unix" || cli.proto == "npipe" {
+-		// For local communications, it doesn't matter what the host is. We just
+-		// need a valid and meaningful host name. (See #189)
+-		req.Host = "docker"
++		// Override host header for non-tcp connections.
++		req.Host = DummyHost
+ 	}
+ 
+-	req.URL.Host = cli.addr
+-	req.URL.Scheme = cli.scheme
+-
+ 	if expectedPayload && req.Header.Get("Content-Type") == "" {
+ 		req.Header.Set("Content-Type", "text/plain")
+ 	}
+diff --git a/components/engine/client/client.go b/components/engine/client/client.go
+index 5031502ac..d483f670e 100644
+--- a/components/engine/client/client.go
++++ b/components/engine/client/client.go
+@@ -60,6 +60,36 @@ import (
+ 	"github.com/pkg/errors"
+ )
+ 
++// DummyHost is a hostname used for local communication.
++//
++// It acts as a valid formatted hostname for local connections (such as "unix://"
++// or "npipe://") which do not require a hostname. It should never be resolved,
++// but uses the special-purpose ".localhost" TLD (as defined in [RFC 2606, Section 2]
++// and [RFC 6761, Section 6.3]).
++//
++// [RFC 7230, Section 5.4] defines that an empty header must be used for such
++// cases:
++//
++//	If the authority component is missing or undefined for the target URI,
++//	then a client MUST send a Host header field with an empty field-value.
++//
++// However, [Go stdlib] enforces the semantics of HTTP(S) over TCP, does not
++// allow an empty header to be used, and requires req.URL.Scheme to be either
++// "http" or "https".
++//
++// For further details, refer to:
++//
++//   - https://github.com/docker/engine-api/issues/189
++//   - https://github.com/golang/go/issues/13624
++//   - https://github.com/golang/go/issues/61076
++//   - https://github.com/moby/moby/issues/45935
++//
++// [RFC 2606, Section 2]: https://www.rfc-editor.org/rfc/rfc2606.html#section-2
++// [RFC 6761, Section 6.3]: https://www.rfc-editor.org/rfc/rfc6761#section-6.3
++// [RFC 7230, Section 5.4]: https://datatracker.ietf.org/doc/html/rfc7230#section-5.4
++// [Go stdlib]: https://github.com/golang/go/blob/6244b1946bc2101b01955468f1be502dbadd6807/src/net/http/transport.go#L558-L569
++const DummyHost = "api.moby.localhost"
++
+ // ErrRedirect is the error returned by checkRedirect when the request is non-GET.
+ var ErrRedirect = errors.New("unexpected redirect in response")
+ 
+diff --git a/components/engine/client/hijack.go b/components/engine/client/hijack.go
+index 0ac8248f2..30509fccb 100644
+--- a/components/engine/client/hijack.go
++++ b/components/engine/client/hijack.go
+@@ -51,7 +51,11 @@ func fallbackDial(proto, addr string, tlsConfig *tls.Config) (net.Conn, error) {
+ }
+ 
+ func (cli *Client) setupHijackConn(ctx context.Context, req *http.Request, proto string) (net.Conn, error) {
+-	req.Host = cli.addr
++	req.URL.Host = cli.addr
++	if cli.proto == "unix" || cli.proto == "npipe" {
++		// Override host header for non-tcp connections.
++		req.Host = DummyHost
++	}
+ 	req.Header.Set("Connection", "Upgrade")
+ 	req.Header.Set("Upgrade", proto)
+ 
+diff --git a/components/engine/client/request.go b/components/engine/client/request.go
+index 855b84d6a..43ae0fbf8 100644
+--- a/components/engine/client/request.go
++++ b/components/engine/client/request.go
+@@ -99,16 +99,14 @@ func (cli *Client) buildRequest(method, path string, body io.Reader, headers hea
+ 		return nil, err
+ 	}
+ 	req = cli.addHeaders(req, headers)
++	req.URL.Scheme = cli.scheme
++	req.URL.Host = cli.addr
+ 
+ 	if cli.proto == "unix" || cli.proto == "npipe" {
+-		// For local communications, it doesn't matter what the host is. We just
+-		// need a valid and meaningful host name. (See #189)
+-		req.Host = "docker"
++		// Override host header for non-tcp connections.
++		req.Host = DummyHost
+ 	}
+ 
+-	req.URL.Host = cli.addr
+-	req.URL.Scheme = cli.scheme
+-
+ 	if expectedPayload && req.Header.Get("Content-Type") == "" {
+ 		req.Header.Set("Content-Type", "text/plain")
+ 	}
+diff --git a/components/engine/pkg/plugins/client.go b/components/engine/pkg/plugins/client.go
+index 035330535..5ea2ad75d 100644
+--- a/components/engine/pkg/plugins/client.go
++++ b/components/engine/pkg/plugins/client.go
+@@ -19,6 +19,12 @@ import (
+ 
+ const (
+ 	defaultTimeOut = 30
++
++	// dummyHost is a hostname used for local communication.
++	//
++	// For local communications (npipe://, unix://), the hostname is not used,
++	// but we need valid and meaningful hostname.
++	dummyHost = "plugin.moby.localhost"
+ )
+ 
+ func newTransport(addr string, tlsConfig *tlsconfig.Options) (transport.Transport, error) {
+@@ -45,8 +51,12 @@ func newTransport(addr string, tlsConfig *tlsconfig.Options) (transport.Transpor
+ 		return nil, err
+ 	}
+ 	scheme := httpScheme(u)
+-
+-	return transport.NewHTTPTransport(tr, scheme, socket), nil
++	hostName := u.Host
++	if hostName == "" || u.Scheme == "unix" || u.Scheme == "npipe" {
++		// Override host header for non-tcp connections.
++		hostName = dummyHost
++	}
++	return transport.NewHTTPTransport(tr, scheme, hostName), nil
+ }
+ 
+ // NewClient creates a new plugin client (http).
+-- 
+2.23.0
+
