@@ -1,0 +1,83 @@
+From bd1ebe87b72eaad2f213d554139eef478af95285 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Tue, 4 Jul 2023 19:43:54 +0800
+Subject: [PATCH] docker: remove useless mount point dir
+
+Concurrent execution of docker pull and restart dockerd, some mount point
+dir may be left over. The reason is there is no time to do cleanup operation.
+So we can cleanup the mount point dir when start dockerd.
+---
+ .../daemon/graphdriver/devmapper/driver.go    | 32 +++++++++++++++----
+ 1 file changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/daemon/graphdriver/devmapper/driver.go b/components/engine/daemon/graphdriver/devmapper/driver.go
+index a1a6e17af..e6ad26e32 100644
+--- a/components/engine/daemon/graphdriver/devmapper/driver.go
++++ b/components/engine/daemon/graphdriver/devmapper/driver.go
+@@ -19,6 +19,7 @@ import (
+ 	"github.com/docker/go-units"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
++	"golang.org/x/sys/unix"
+ )
+ 
+ func init() {
+@@ -127,11 +128,25 @@ func (d *Driver) GetMetadata(id string) (map[string]string, error) {
+ 
+ // GetAll not implemented
+ func (d *Driver) GetAll() []string {
+-        ids := []string{}
+-        for id, _ := range d.DeviceSet.Devices {
+-                ids = append(ids, id)
+-        }
+-        return ids
++	ids := []string{}
++
++	for id, _ := range d.DeviceSet.Devices {
++		ids = append(ids, id)
++	}
++
++	fs, err := ioutil.ReadDir(path.Join(d.home, "mnt"))
++	if err != nil {
++		logrus.Errorf("open directory(%s) failed: %s", d.home, err)
++		return ids
++	}
++
++	for _, f := range fs {
++		if dir, _ := ioutil.ReadDir(path.Join(d.home, "mnt", f.Name())); len(f.Name()) >= 64 && len(dir) == 0 {
++			ids = append(ids, f.Name())
++		}
++	}
++
++	return ids
+ }
+ 
+ // CheckParent not implemented
+@@ -175,10 +190,15 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) error {
+ func (d *Driver) Remove(id string) error {
+ 	d.locker.Lock(id)
+ 	defer d.locker.Unlock(id)
++
++	mp := path.Join(d.home, "mnt", id)
+ 	if !d.DeviceSet.HasDevice(id) {
+ 		// Consider removing a non-existing device a no-op
+ 		// This is useful to be able to progress on container removal
+ 		// if the underlying device has gone away due to earlier errors
++		if err := unix.Rmdir(mp); err != nil {
++			logrus.WithField("storage-driver", "devicemapper").Warnf("unable to remove redundancy mount point %q: %s", mp, err)
++		}
+ 		return nil
+ 	}
+ 
+@@ -194,7 +214,7 @@ func (d *Driver) Remove(id string) error {
+ 	// to other mount namespaces. A failure to remove the container's
+ 	// mount point is not important and should not be treated
+ 	// as a failure to remove the container.
+-	mp := path.Join(d.home, "mnt", id)
++
+ 	// In some cases, there are some files in the mount point dir, so we can't use
+ 	// unix.Rmdir to remove mount point dir. os.RemoveAll is more appropriate
+ 	err := os.RemoveAll(mp)
+-- 
+2.33.0
+
