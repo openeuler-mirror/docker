@@ -1,0 +1,245 @@
+From 74f86ec23f345acb3b40baea785c1f4e6a5d74bf Mon Sep 17 00:00:00 2001
+From: Sebastiaan van Stijn <github@gone.nl>
+Date: Tue, 18 Dec 2018 22:30:08 +0100
+Subject: [PATCH] builder: fix `COPY --from` should preserve ownership
+
+When copying between stages, or copying from an image,
+ownership of the copied files should not be changed, unless
+the `--chown` option is set (in which case ownership of copied
+files should be updated to the specified user/group).
+
+Signed-off-by: Sebastiaan van Stijn <github@gone.nl>
+---
+ components/engine/builder/dockerfile/copy.go  | 33 +++++++----
+ .../engine/builder/dockerfile/dispatchers.go  |  4 +-
+ .../engine/builder/dockerfile/internals.go    |  4 +-
+ .../engine/integration/build/build_test.go    | 39 +++++++++++++
+ .../Dockerfile.testBuildPreserveOwnership     | 57 +++++++++++++++++++
+ 5 files changed, 125 insertions(+), 12 deletions(-)
+ create mode 100644 components/engine/integration/build/testdata/Dockerfile.testBuildPreserveOwnership
+
+diff --git a/components/engine/builder/dockerfile/copy.go b/components/engine/builder/dockerfile/copy.go
+index c323e70336..410cc959a9 100644
+--- a/components/engine/builder/dockerfile/copy.go
++++ b/components/engine/builder/dockerfile/copy.go
+@@ -64,6 +64,7 @@ type copyInstruction struct {
+ 	dest                    string
+ 	chownStr                string
+ 	allowLocalDecompression bool
++	preserveOwnership       bool
+ }
+ 
+ // copier reads a raw COPY or ADD command, fetches remote sources using a downloader,
+@@ -466,7 +467,7 @@ func downloadSource(output io.Writer, stdout io.Writer, srcURL string) (remote b
+ 
+ type copyFileOptions struct {
+ 	decompress bool
+-	identity   idtools.Identity
++	identity   *idtools.Identity
+ 	archiver   Archiver
+ }
+ 
+@@ -533,7 +534,7 @@ func isArchivePath(driver containerfs.ContainerFS, path string) bool {
+ 	return err == nil
+ }
+ 
+-func copyDirectory(archiver Archiver, source, dest *copyEndpoint, identity idtools.Identity) error {
++func copyDirectory(archiver Archiver, source, dest *copyEndpoint, identity *idtools.Identity) error {
+ 	destExists, err := isExistingDirectory(dest)
+ 	if err != nil {
+ 		return errors.Wrapf(err, "failed to query destination path")
+@@ -542,28 +543,40 @@ func copyDirectory(archiver Archiver, source, dest *copyEndpoint, identity idtoo
+ 	if err := archiver.CopyWithTar(source.path, dest.path); err != nil {
+ 		return errors.Wrapf(err, "failed to copy directory")
+ 	}
+-	// TODO: @gupta-ak. Investigate how LCOW permission mappings will work.
+-	return fixPermissions(source.path, dest.path, identity, !destExists)
++	if identity != nil {
++		// TODO: @gupta-ak. Investigate how LCOW permission mappings will work.
++		return fixPermissions(source.path, dest.path, *identity, !destExists)
++	}
++	return nil
+ }
+ 
+-func copyFile(archiver Archiver, source, dest *copyEndpoint, identity idtools.Identity) error {
++func copyFile(archiver Archiver, source, dest *copyEndpoint, identity *idtools.Identity) error {
+ 	if runtime.GOOS == "windows" && dest.driver.OS() == "linux" {
+ 		// LCOW
+ 		if err := dest.driver.MkdirAll(dest.driver.Dir(dest.path), 0755); err != nil {
+ 			return errors.Wrapf(err, "failed to create new directory")
+ 		}
+ 	} else {
+-		if err := idtools.MkdirAllAndChownNew(filepath.Dir(dest.path), 0755, identity); err != nil {
+-			// Normal containers
+-			return errors.Wrapf(err, "failed to create new directory")
++		if identity == nil {
++			if err := os.MkdirAll(filepath.Dir(dest.path), 0755); err != nil {
++				return err
++			}
++		} else {
++			if err := idtools.MkdirAllAndChownNew(filepath.Dir(dest.path), 0755, *identity); err != nil {
++				// Normal containers
++				return errors.Wrapf(err, "failed to create new directory")
++			}
+ 		}
+ 	}
+ 
+ 	if err := archiver.CopyFileWithTar(source.path, dest.path); err != nil {
+ 		return errors.Wrapf(err, "failed to copy file")
+ 	}
+-	// TODO: @gupta-ak. Investigate how LCOW permission mappings will work.
+-	return fixPermissions(source.path, dest.path, identity, false)
++	if identity != nil {
++		// TODO: @gupta-ak. Investigate how LCOW permission mappings will work.
++		return fixPermissions(source.path, dest.path, *identity, false)
++	}
++	return nil
+ }
+ 
+ func endsInSlash(driver containerfs.Driver, path string) bool {
+diff --git a/components/engine/builder/dockerfile/dispatchers.go b/components/engine/builder/dockerfile/dispatchers.go
+index f2da08ed4d..11cca06b53 100644
+--- a/components/engine/builder/dockerfile/dispatchers.go
++++ b/components/engine/builder/dockerfile/dispatchers.go
+@@ -127,7 +127,9 @@ func dispatchCopy(d dispatchRequest, c *instructions.CopyCommand) error {
+ 		return err
+ 	}
+ 	copyInstruction.chownStr = c.Chown
+-
++	if c.From != "" && copyInstruction.chownStr == "" {
++		copyInstruction.preserveOwnership = true
++	}
+ 	return d.builder.performCopy(d, copyInstruction)
+ }
+ 
+diff --git a/components/engine/builder/dockerfile/internals.go b/components/engine/builder/dockerfile/internals.go
+index 1635981f17..5d906e3641 100644
+--- a/components/engine/builder/dockerfile/internals.go
++++ b/components/engine/builder/dockerfile/internals.go
+@@ -204,7 +204,9 @@ func (b *Builder) performCopy(req dispatchRequest, inst copyInstruction) error {
+ 		opts := copyFileOptions{
+ 			decompress: inst.allowLocalDecompression,
+ 			archiver:   b.getArchiver(info.root, destInfo.root),
+-			identity:   identity,
++		}
++		if !inst.preserveOwnership {
++			opts.identity = &identity
+ 		}
+ 		if err := performCopyForInfo(destInfo, info, opts); err != nil {
+ 			return errors.Wrapf(err, "failed to copy files")
+diff --git a/components/engine/integration/build/build_test.go b/components/engine/integration/build/build_test.go
+index 9dde5d4557..834605bac3 100644
+--- a/components/engine/integration/build/build_test.go
++++ b/components/engine/integration/build/build_test.go
+@@ -455,6 +455,45 @@ RUN for g in $(seq 0 8); do dd if=/dev/urandom of=rnd bs=1K count=1 seek=$((1024
+ 	assert.Check(t, is.Contains(out.String(), "Successfully built"))
+ }
+ 
++func TestBuildPreserveOwnership(t *testing.T) {
++	skip.If(t, testEnv.DaemonInfo.OSType == "windows", "FIXME")
++	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.40"), "broken in earlier versions")
++
++	ctx := context.Background()
++
++	dockerfile, err := ioutil.ReadFile("testdata/Dockerfile.testBuildPreserveOwnership")
++	assert.NilError(t, err)
++
++	source := fakecontext.New(t, "", fakecontext.WithDockerfile(string(dockerfile)))
++	defer source.Close()
++
++	apiclient := testEnv.APIClient()
++
++	for _, target := range []string{"copy_from", "copy_from_chowned"} {
++		t.Run(target, func(t *testing.T) {
++			resp, err := apiclient.ImageBuild(
++				ctx,
++				source.AsTarReader(t),
++				types.ImageBuildOptions{
++					Remove:      true,
++					ForceRemove: true,
++					Target:      target,
++				},
++			)
++			assert.NilError(t, err)
++
++			out := bytes.NewBuffer(nil)
++			assert.NilError(t, err)
++			_, err = io.Copy(out, resp.Body)
++			_ = resp.Body.Close()
++			if err != nil {
++				t.Log(out)
++			}
++			assert.NilError(t, err)
++		})
++	}
++}
++
+ func writeTarRecord(t *testing.T, w *tar.Writer, fn, contents string) {
+ 	err := w.WriteHeader(&tar.Header{
+ 		Name:     fn,
+diff --git a/components/engine/integration/build/testdata/Dockerfile.testBuildPreserveOwnership b/components/engine/integration/build/testdata/Dockerfile.testBuildPreserveOwnership
+new file mode 100644
+index 0000000000..ba9d059942
+--- /dev/null
++++ b/components/engine/integration/build/testdata/Dockerfile.testBuildPreserveOwnership
+@@ -0,0 +1,57 @@
++# Set up files and directories with known ownership
++FROM busybox AS source
++RUN touch /file && chown 100:200 /file \
++ && mkdir -p /dir/subdir \
++ && touch /dir/subdir/nestedfile \
++ && chown 100:200 /dir \
++ && chown 101:201 /dir/subdir \
++ && chown 102:202 /dir/subdir/nestedfile
++
++FROM busybox AS test_base
++RUN mkdir -p /existingdir/existingsubdir \
++ && touch /existingdir/existingfile \
++ && chown 500:600 /existingdir \
++ && chown 501:601 /existingdir/existingsubdir \
++ && chown 501:601 /existingdir/existingfile
++
++
++# Copy files from the source stage
++FROM test_base AS copy_from
++COPY --from=source /file .
++# Copy to a non-existing target directory creates the target directory (as root), then copies the _contents_ of the source directory into it
++COPY --from=source /dir /dir
++# Copying to an existing target directory will copy the _contents_ of the source directory into it
++COPY --from=source /dir/. /existingdir
++
++RUN e="100:200"; p="/file"                         ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="0:0";     p="/dir"                          ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="101:201"; p="/dir/subdir"                   ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="102:202"; p="/dir/subdir/nestedfile"        ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++# Existing files and directories ownership should not be modified
++ && e="500:600"; p="/existingdir"                  ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="501:601"; p="/existingdir/existingsubdir"   ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="501:601"; p="/existingdir/existingfile"     ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++# But new files and directories should maintain their ownership
++ && e="101:201"; p="/existingdir/subdir"           ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="102:202"; p="/existingdir/subdir/nestedfile"; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi
++
++
++# Copy files from the source stage and chown them.
++FROM test_base AS copy_from_chowned
++COPY --from=source --chown=300:400 /file .
++# Copy to a non-existing target directory creates the target directory (as root), then copies the _contents_ of the source directory into it
++COPY --from=source --chown=300:400 /dir /dir
++# Copying to an existing target directory copies the _contents_ of the source directory into it
++COPY --from=source --chown=300:400 /dir/. /existingdir
++
++RUN e="300:400"; p="/file"                         ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="300:400"; p="/dir"                          ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="300:400"; p="/dir/subdir"                   ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="300:400"; p="/dir/subdir/nestedfile"        ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++# Existing files and directories ownership should not be modified
++ && e="500:600"; p="/existingdir"                  ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="501:601"; p="/existingdir/existingsubdir"   ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="501:601"; p="/existingdir/existingfile"     ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++# But new files and directories should be chowned
++ && e="300:400"; p="/existingdir/subdir"           ; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi \
++ && e="300:400"; p="/existingdir/subdir/nestedfile"; a=`stat -c "%u:%g" "$p"`; if [ "$a" != "$e" ]; then echo "incorrect ownership on $p. expected $e, got $a"; exit 1; fi
+-- 
+2.33.0
+
