@@ -1,4 +1,4 @@
-From a1e170db821863c8a8062f599fab64d6c1d95210 Mon Sep 17 00:00:00 2001
+From 2a6d6321956d0a6edbec7421357e14c01dc7f5ab Mon Sep 17 00:00:00 2001
 From: chenjiankun <chenjiankun1@huawei.com>
 Date: Fri, 13 Jan 2023 17:13:22 +0800
 Subject: [PATCH] docker: set freezer.state to Thawed to increase freeze
@@ -6,12 +6,15 @@ Subject: [PATCH] docker: set freezer.state to Thawed to increase freeze
 
 docker pause/unpause with parallel docker exec can lead to freezing
 state, set freezer.state to Thawed to increase freeze chances
+
+Occasional short sleep before reading the state back also improves
+the chances to succeed in freezing in case of a very slow system.
 ---
- components/engine/daemon/freezer/freezer.go | 21 +++++++++++++++++++++
- 1 file changed, 21 insertions(+)
+ components/engine/daemon/freezer/freezer.go | 28 +++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
 
 diff --git a/components/engine/daemon/freezer/freezer.go b/components/engine/daemon/freezer/freezer.go
-index 6df176f2f..fde134887 100644
+index 6df176f2f..bd45304f4 100644
 --- a/components/engine/daemon/freezer/freezer.go
 +++ b/components/engine/daemon/freezer/freezer.go
 @@ -186,6 +186,7 @@ func (f *freezer) updateCgroup(state string) error {
@@ -49,6 +52,20 @@ index 6df176f2f..fde134887 100644
  			// In case this loop does not exit because it doesn't get the expected
  			// state, let's write again this state, hoping it's going to be properly
  			// set this time. Otherwise, this loop could run infinitely, waiting for
+@@ -201,6 +222,13 @@ func (f *freezer) updateCgroup(state string) error {
+ 			if err := writeFile(f.path, "freezer.state", state); err != nil {
+ 				return fmt.Errorf("cannot write freezer.state for %#v", err)
+ 			}
++			if count%25 == 24 {
++				// Occasional short sleep before reading
++				// the state back also improves the chances to
++				// succeed in freezing in case of a very slow
++				// system.
++				time.Sleep(10 * time.Microsecond)
++			}
+ 			newState, err := readFile(f.path, "freezer.state")
+ 			if err != nil {
+ 				return fmt.Errorf("read freezer.state failed after write: %v", err)
 -- 
-2.23.0
+2.33.0
 
