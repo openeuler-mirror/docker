@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 330
+Release: 331
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -229,6 +229,12 @@ fi
 %endif
 
 %changelog
+* Thu Oct 12 2023 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-331
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:add delay after freeze
+
 * Mon Oct 09 2023 Lu Jingxiao<lujingxiao@huawei.com> - 18.09.0-330
 - Type:bugfix
 - CVE:NA
