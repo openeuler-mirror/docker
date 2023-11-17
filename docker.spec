@@ -1,6 +1,6 @@
 Name: docker-engine
 Version: 18.09.0
-Release: 331
+Release: 332
 Epoch: 2
 Summary: The open-source application container engine
 Group: Tools/Docker
@@ -26,7 +26,7 @@ URL: https://mobyproject.org
 # most are already in the container (see contrib/builder/rpm/ARCH/generate.sh)
 BuildRequires: pkgconfig(systemd) golang >= 1.8.3 btrfs-progs-devel device-mapper-devel glibc-static libseccomp-devel
 BuildRequires: libselinux-devel libtool-ltdl-devel pkgconfig selinux-policy selinux-policy-devel sqlite-devel systemd-devel
-BuildRequires: tar containerd docker-runc docker-proxy git
+BuildRequires: tar containerd runc docker-proxy git
 
 # required packages on install
 Requires: /bin/sh iptables tar xz device-mapper-libs >= 1.02.90-1 systemd-units
@@ -229,6 +229,12 @@ fi
 %endif
 
 %changelog
+* Fri Nov 17 2023 zhongjiawei<zhongjiawei1@huawei.com> - 2:18.09.0-332
+- Type:bugfix
+- CVE:NA
+- SUG:NA
+- DESC:modify runc rpm package name to runc
+
 * Thu Oct 12 2023 zhongjiawei<zhongjiawei1@huawei.com> - 18.09.0-331
 - Type:bugfix
 - CVE:NA
