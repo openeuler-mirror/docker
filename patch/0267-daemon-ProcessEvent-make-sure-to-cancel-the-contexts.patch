@@ -1,0 +1,54 @@
+From 543ae0a4cbdfa0253dc1fd2b29dc957ea23fde63 Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:35:19 +0800
+Subject: [PATCH 05/10] daemon/ProcessEvent: make sure to cancel the contexts
+ Reported by govet linter:
+
+> daemon/monitor.go:57:9: lostcancel: the cancel function returned by context.WithTimeout should be called, not discarded, to avoid a context leak (govet)
+> 			ctx, _ := context.WithTimeout(context.Background(), 2*time.Second)
+> 			     ^
+> daemon/monitor.go:128:9: lostcancel: the cancel function returned by context.WithTimeout should be called, not discarded, to avoid a context leak (govet)
+> 			ctx, _ := context.WithTimeout(context.Background(), 2*time.Second)
+> 			     ^
+
+Fixes: b5f288 ("Handle blocked I/O of exec'd processes")
+Signed-off-by: Kir Kolyshkin <kolyshkin@gmail.com>
+Upstream-commit: 53cbf1797b001314035a13578ed60f015a0179e4
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/f43f820a8c0e17c76f6cb42ab07a9c526b64734c
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ components/engine/daemon/monitor.go | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/components/engine/daemon/monitor.go b/components/engine/daemon/monitor.go
+index d47b51a33..7ab4d431b 100644
+--- a/components/engine/daemon/monitor.go
++++ b/components/engine/daemon/monitor.go
+@@ -77,8 +77,9 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 				logrus.WithError(err).Warnf("failed to delete container %s from containerd", c.ID)
+ 			}
+ 
+-			ctx, _ := context.WithTimeout(context.Background(), 2*time.Second)
++			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+ 			c.StreamConfig.Wait(ctx)
++			cancel()
+ 			c.Reset(false)
+ 
+ 			exitStatus := container.ExitStatus{
+@@ -145,8 +146,9 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
+ 			defer execConfig.Unlock()
+ 			execConfig.ExitCode = &ec
+ 			execConfig.Running = false
+-			ctx, _ := context.WithTimeout(context.Background(), 2*time.Second)
++			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+ 			execConfig.StreamConfig.Wait(ctx)
++			cancel()
+ 			if err := execConfig.CloseStreams(); err != nil {
+ 				logrus.Errorf("failed to cleanup exec %s streams: %s", c.ID, err)
+ 			}
+-- 
+2.33.0
+

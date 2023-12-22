@@ -1,0 +1,59 @@
+From b38955814a5c5259974e081d3abb8e7da7c1f90a Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:22:14 +0800
+Subject: [PATCH 01/10] Fix possible nil pointer exception It is possible that
+ the node is not yet present in the node list map. In this case just print a
+ warning and return. The next iteration would be fine
+
+Signed-off-by: Flavio Crisciani <flavio.crisciani@docker.com>
+Upstream-commit: 151f42aeaa062535246a38330a78700398de53cd
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/b033961a82cd48cc31e5ae891f033fe4eb184192
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ .../engine/vendor/github.com/docker/libnetwork/network.go | 8 +++-----
+ .../github.com/docker/libnetwork/networkdb/cluster.go     | 7 ++++++-
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/network.go b/components/engine/vendor/github.com/docker/libnetwork/network.go
+index 4940aa835..0e7890769 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/network.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/network.go
+@@ -396,11 +396,9 @@ func (n *network) validateConfiguration() error {
+ 					driverOptions map[string]string
+ 					opts          interface{}
+ 				)
+-				switch data.(type) {
+-				case map[string]interface{}:
+-					opts = data.(map[string]interface{})
+-				case map[string]string:
+-					opts = data.(map[string]string)
++				switch t := data.(type) {
++				case map[string]interface{}, map[string]string:
++					opts = t
+ 				}
+ 				ba, err := json.Marshal(opts)
+ 				if err != nil {
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/networkdb/cluster.go b/components/engine/vendor/github.com/docker/libnetwork/networkdb/cluster.go
+index c98957084..2e7795440 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/networkdb/cluster.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/networkdb/cluster.go
+@@ -288,7 +288,12 @@ func (nDB *NetworkDB) rejoinClusterBootStrap() {
+ 		return
+ 	}
+ 
+-	myself, _ := nDB.nodes[nDB.config.NodeID]
++	myself, ok := nDB.nodes[nDB.config.NodeID]
++	if !ok {
++		nDB.RUnlock()
++		logrus.Warnf("rejoinClusterBootstrap unable to find local node info using ID:%v", nDB.config.NodeID)
++		return
++	}
+ 	bootStrapIPs := make([]string, 0, len(nDB.bootStrapIP))
+ 	for _, bootIP := range nDB.bootStrapIP {
+ 		// botostrap IPs are usually IP:port from the Join
+-- 
+2.33.0
+

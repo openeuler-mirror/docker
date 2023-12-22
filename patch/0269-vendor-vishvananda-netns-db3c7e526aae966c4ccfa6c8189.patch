@@ -1,0 +1,191 @@
+From 7968f451470d4fb2a50335ebb593e885fc54956e Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:49:55 +0800
+Subject: [PATCH 07/10] vendor: vishvananda/netns
+ db3c7e526aae966c4ccfa6c8189b693d6ac5d202 Signed-off-by: Sebastiaan van Stijn
+ <github@gone.nl> Upstream-commit: e11c7fe3ab085939d74a386d763ca3ae4c67c7a0
+ Component: engine
+
+ Reference: https://github.com/docker/docker-ce/commit/7a24e475b3cb5975c7fc02b2d854ae58f13bcabd
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ .../github.com/vishvananda/netns/netns.go     | 15 ++--
+ .../vishvananda/netns/netns_linux.go          | 72 +++++++++++++++----
+ 2 files changed, 66 insertions(+), 21 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/vishvananda/netns/netns.go b/components/engine/vendor/github.com/vishvananda/netns/netns.go
+index 2ca0feedd..aa32ac7fd 100644
+--- a/components/engine/vendor/github.com/vishvananda/netns/netns.go
++++ b/components/engine/vendor/github.com/vishvananda/netns/netns.go
+@@ -10,7 +10,8 @@ package netns
+ 
+ import (
+ 	"fmt"
+-	"syscall"
++
++	"golang.org/x/sys/unix"
+ )
+ 
+ // NsHandle is a handle to a network namespace. It can be cast directly
+@@ -24,11 +25,11 @@ func (ns NsHandle) Equal(other NsHandle) bool {
+ 	if ns == other {
+ 		return true
+ 	}
+-	var s1, s2 syscall.Stat_t
+-	if err := syscall.Fstat(int(ns), &s1); err != nil {
++	var s1, s2 unix.Stat_t
++	if err := unix.Fstat(int(ns), &s1); err != nil {
+ 		return false
+ 	}
+-	if err := syscall.Fstat(int(other), &s2); err != nil {
++	if err := unix.Fstat(int(other), &s2); err != nil {
+ 		return false
+ 	}
+ 	return (s1.Dev == s2.Dev) && (s1.Ino == s2.Ino)
+@@ -36,11 +37,11 @@ func (ns NsHandle) Equal(other NsHandle) bool {
+ 
+ // String shows the file descriptor number and its dev and inode.
+ func (ns NsHandle) String() string {
+-	var s syscall.Stat_t
+ 	if ns == -1 {
+ 		return "NS(None)"
+ 	}
+-	if err := syscall.Fstat(int(ns), &s); err != nil {
++	var s unix.Stat_t
++	if err := unix.Fstat(int(ns), &s); err != nil {
+ 		return fmt.Sprintf("NS(%d: unknown)", ns)
+ 	}
+ 	return fmt.Sprintf("NS(%d: %d, %d)", ns, s.Dev, s.Ino)
+@@ -54,7 +55,7 @@ func (ns NsHandle) IsOpen() bool {
+ // Close closes the NsHandle and resets its file descriptor to -1.
+ // It is not safe to use an NsHandle after Close() is called.
+ func (ns *NsHandle) Close() error {
+-	if err := syscall.Close(int(*ns)); err != nil {
++	if err := unix.Close(int(*ns)); err != nil {
+ 		return err
+ 	}
+ 	(*ns) = -1
+diff --git a/components/engine/vendor/github.com/vishvananda/netns/netns_linux.go b/components/engine/vendor/github.com/vishvananda/netns/netns_linux.go
+index abdc30829..cf1db6025 100644
+--- a/components/engine/vendor/github.com/vishvananda/netns/netns_linux.go
++++ b/components/engine/vendor/github.com/vishvananda/netns/netns_linux.go
+@@ -1,3 +1,4 @@
++//go:build linux
+ // +build linux
+ 
+ package netns
+@@ -6,31 +7,31 @@ import (
+ 	"fmt"
+ 	"io/ioutil"
+ 	"os"
++	"path"
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
+ 	"syscall"
++
++	"golang.org/x/sys/unix"
+ )
+ 
+ const (
+ 	// These constants belong in the syscall library but have not been
+ 	// added yet.
+-	CLONE_NEWUTS  = 0x04000000 /* New utsname group? */
+-	CLONE_NEWIPC  = 0x08000000 /* New ipcs */
+-	CLONE_NEWUSER = 0x10000000 /* New user namespace */
+-	CLONE_NEWPID  = 0x20000000 /* New pid namespace */
+-	CLONE_NEWNET  = 0x40000000 /* New network namespace */
+-	CLONE_IO      = 0x80000000 /* Get io context */
++	CLONE_NEWUTS  = 0x04000000   /* New utsname group? */
++	CLONE_NEWIPC  = 0x08000000   /* New ipcs */
++	CLONE_NEWUSER = 0x10000000   /* New user namespace */
++	CLONE_NEWPID  = 0x20000000   /* New pid namespace */
++	CLONE_NEWNET  = 0x40000000   /* New network namespace */
++	CLONE_IO      = 0x80000000   /* Get io context */
++	bindMountPath = "/run/netns" /* Bind mount path for named netns */
+ )
+ 
+ // Setns sets namespace using syscall. Note that this should be a method
+ // in syscall but it has not been added.
+ func Setns(ns NsHandle, nstype int) (err error) {
+-	_, _, e1 := syscall.Syscall(SYS_SETNS, uintptr(ns), uintptr(nstype), 0)
+-	if e1 != 0 {
+-		err = e1
+-	}
+-	return
++	return unix.Setns(int(ns), nstype)
+ }
+ 
+ // Set sets the current network namespace to the namespace represented
+@@ -41,21 +42,64 @@ func Set(ns NsHandle) (err error) {
+ 
+ // New creates a new network namespace and returns a handle to it.
+ func New() (ns NsHandle, err error) {
+-	if err := syscall.Unshare(CLONE_NEWNET); err != nil {
++	if err := unix.Unshare(CLONE_NEWNET); err != nil {
+ 		return -1, err
+ 	}
+ 	return Get()
+ }
+ 
++// NewNamed creates a new named network namespace and returns a handle to it
++func NewNamed(name string) (NsHandle, error) {
++	if _, err := os.Stat(bindMountPath); os.IsNotExist(err) {
++		err = os.MkdirAll(bindMountPath, 0755)
++		if err != nil {
++			return None(), err
++		}
++	}
++
++	newNs, err := New()
++	if err != nil {
++		return None(), err
++	}
++
++	namedPath := path.Join(bindMountPath, name)
++
++	f, err := os.OpenFile(namedPath, os.O_CREATE|os.O_EXCL, 0444)
++	if err != nil {
++		return None(), err
++	}
++	f.Close()
++
++	nsPath := fmt.Sprintf("/proc/%d/task/%d/ns/net", os.Getpid(), syscall.Gettid())
++	err = syscall.Mount(nsPath, namedPath, "bind", syscall.MS_BIND, "")
++	if err != nil {
++		return None(), err
++	}
++
++	return newNs, nil
++}
++
++// DeleteNamed deletes a named network namespace
++func DeleteNamed(name string) error {
++	namedPath := path.Join(bindMountPath, name)
++
++	err := syscall.Unmount(namedPath, syscall.MNT_DETACH)
++	if err != nil {
++		return err
++	}
++
++	return os.Remove(namedPath)
++}
++
+ // Get gets a handle to the current threads network namespace.
+ func Get() (NsHandle, error) {
+-	return GetFromThread(os.Getpid(), syscall.Gettid())
++	return GetFromThread(os.Getpid(), unix.Gettid())
+ }
+ 
+ // GetFromPath gets a handle to a network namespace
+ // identified by the path
+ func GetFromPath(path string) (NsHandle, error) {
+-	fd, err := syscall.Open(path, syscall.O_RDONLY, 0)
++	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC, 0)
+ 	if err != nil {
+ 		return -1, err
+ 	}
+-- 
+2.33.0
+

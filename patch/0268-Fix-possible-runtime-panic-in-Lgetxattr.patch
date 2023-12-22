@@ -1,0 +1,59 @@
+From 316b667f240bf2d3792188d05b8bdace294a8d2c Mon Sep 17 00:00:00 2001
+From: Sascha Grunert <sgrunert@suse.com>
+Date: Wed, 4 Dec 2019 14:25:58 +0100
+Subject: [PATCH 06/10] Fix possible runtime panic in Lgetxattr
+
+If `unix.Lgetxattr` returns an error, then `sz == -1` which will cause a
+runtime panic if `errno == unix.ERANGE`.
+
+Signed-off-by: Sascha Grunert <sgrunert@suse.com>
+Upstream-commit: 4138cd22abeaa7d1c49a96fa4c0045feb32b847e
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/b1d05350ecaf98f478577246d7e17311cd4761c9
+---
+ components/engine/pkg/system/xattrs_linux.go | 21 ++++++++++++++------
+ 1 file changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/pkg/system/xattrs_linux.go b/components/engine/pkg/system/xattrs_linux.go
+index 66d4895b2..d4f1a57fb 100644
+--- a/components/engine/pkg/system/xattrs_linux.go
++++ b/components/engine/pkg/system/xattrs_linux.go
+@@ -6,19 +6,28 @@ import "golang.org/x/sys/unix"
+ // and associated with the given path in the file system.
+ // It will returns a nil slice and nil error if the xattr is not set.
+ func Lgetxattr(path string, attr string) ([]byte, error) {
++	// Start with a 128 length byte array
+ 	dest := make([]byte, 128)
+ 	sz, errno := unix.Lgetxattr(path, attr, dest)
+-	if errno == unix.ENODATA {
++
++	switch {
++	case errno == unix.ENODATA:
+ 		return nil, nil
+-	}
+-	if errno == unix.ERANGE {
++	case errno == unix.ERANGE:
++		// 128 byte array might just not be good enough. A dummy buffer is used
++		// to get the real size of the xattrs on disk
++		sz, errno = unix.Lgetxattr(path, attr, []byte{})
++		if errno != nil {
++			return nil, errno
++		}
+ 		dest = make([]byte, sz)
+ 		sz, errno = unix.Lgetxattr(path, attr, dest)
+-	}
+-	if errno != nil {
++		if errno != nil {
++			return nil, errno
++		}
++	case errno != nil:
+ 		return nil, errno
+ 	}
+-
+ 	return dest[:sz], nil
+ }
+ 
+-- 
+2.33.0
+
