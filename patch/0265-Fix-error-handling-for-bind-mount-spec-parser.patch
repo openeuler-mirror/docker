@@ -1,0 +1,37 @@
+From f1bc509fb5e58500bc3d8661d335268130e2e4a7 Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:31:18 +0800
+Subject: [PATCH 03/10] Fix error handling for bind mount spec parser. Errors
+ were being ignored and always telling the user that the path doesn't exist
+ even if it was some other problem, such as a permission error.
+
+Signed-off-by: Brian Goff <cpuguy83@gmail.com>
+Upstream-commit: ebcef288343698dd86ff307f5b9c58aa52ce9fdd
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/2a8341f2528b3e3a5c70f0ebf0980af3e3f70119
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ components/engine/volume/mounts/linux_parser.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/volume/mounts/linux_parser.go b/components/engine/volume/mounts/linux_parser.go
+index 8e436aec0..e276a39ce 100644
+--- a/components/engine/volume/mounts/linux_parser.go
++++ b/components/engine/volume/mounts/linux_parser.go
+@@ -82,7 +82,10 @@ func (p *linuxParser) validateMountConfigImpl(mnt *mount.Mount, validateBindSour
+ 		}
+ 
+ 		if validateBindSourceExists {
+-			exists, _, _ := currentFileInfoProvider.fileInfo(mnt.Source)
++			exists, _, err := currentFileInfoProvider.fileInfo(mnt.Source)
++			if err != nil {
++				return &errMountConfig{mnt, err}
++			}
+ 			if !exists {
+ 				return &errMountConfig{mnt, errBindSourceDoesNotExist(mnt.Source)}
+ 			}
+-- 
+2.33.0
+

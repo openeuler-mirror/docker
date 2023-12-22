@@ -1,0 +1,73 @@
+From fb353504e81196d7030710b648834ca61092f3aa Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:59:30 +0800
+Subject: [PATCH 09/10] =?UTF-8?q?libnetwork:=20processEndpointDelete:=20Fi?=
+ =?UTF-8?q?x=20deadlock=20between=20getSvcRecords=E2=80=A6=20=E2=80=A6=20a?=
+ =?UTF-8?q?nd=20processEndpointDelete?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+We had some hosts with quite a bit of cycling containers that ocassionally causes docker daemons to lock up.
+Most prominently `docker run` commands do not respond and nothing happens anymore.
+
+Looking at the stack trace the following is at least likely sometimes a cause to that:
+Two goroutines g0 and g1 can race against each other:
+* (g0) 1. getSvcRecords is called and calls (*network).Lock()
+       --> Network is locked.
+* (g1) 2. processEndpointDelete is called, and calls (*controller).Lock()
+       --> Controller is locked
+* (g1) 3. processEndpointDelete tries (*network).ID() which calls (*network).Lock().
+* (g0) 4. getSvcRecords calls (*controller).Lock().
+
+3./4. are deadlocked against each other since the other goroutine holds the lock they need.
+
+References https://github.com/moby/libnetwork/blob/b5dc37037049d9b9ef68a3c4611e5eb1b35dd2af/network.go
+
+Signed-off-by: Steffen Butzer <steffen.butzer@outlook.com>
+Upstream-commit: 7c97896747726554165480d102d9e46c54334cba
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/76e42601417c9bbcd7637a8b75d2d4318f6254ed
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ .../vendor/github.com/docker/libnetwork/store.go      | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/components/engine/vendor/github.com/docker/libnetwork/store.go b/components/engine/vendor/github.com/docker/libnetwork/store.go
+index 0a7c5754d..65af83d22 100644
+--- a/components/engine/vendor/github.com/docker/libnetwork/store.go
++++ b/components/engine/vendor/github.com/docker/libnetwork/store.go
+@@ -421,11 +421,14 @@ func (c *controller) processEndpointDelete(nmap map[string]*netWatch, ep *endpoi
+ 		return
+ 	}
+ 
++	networkID := n.ID()
++	endpointID := ep.ID()
++
+ 	c.Lock()
+-	nw, ok := nmap[n.ID()]
++	nw, ok := nmap[networkID]
+ 
+ 	if ok {
+-		delete(nw.localEps, ep.ID())
++		delete(nw.localEps, endpointID)
+ 		c.Unlock()
+ 
+ 		// Update the svc db about local endpoint leave right away
+@@ -439,9 +442,9 @@ func (c *controller) processEndpointDelete(nmap map[string]*netWatch, ep *endpoi
+ 
+ 			// This is the last container going away for the network. Destroy
+ 			// this network's svc db entry
+-			delete(c.svcRecords, n.ID())
++			delete(c.svcRecords, networkID)
+ 
+-			delete(nmap, n.ID())
++			delete(nmap, networkID)
+ 		}
+ 	}
+ 	c.Unlock()
+-- 
+2.33.0
+

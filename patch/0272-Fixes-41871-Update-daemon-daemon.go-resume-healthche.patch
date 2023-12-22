@@ -1,0 +1,55 @@
+From b12d244a382c920c19a75fbc52845ef7b74fcaac Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 21:08:59 +0800
+Subject: [PATCH 10/10] Fixes #41871: Update daemon/daemon.go: resume
+ healthcheck on restore Call updateHealthMonitor for alive non-paused
+ containers
+
+Signed-off-by: Alexis Ries <alexis.ries.ext@orange.com>
+Upstream-commit: 9f39889dee7d96430359d7e1f8970a88acad59e5
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/b92585a47049e661c8dcc0956e3e5f0210b5c4f3
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ components/engine/daemon/daemon.go | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon.go b/components/engine/daemon/daemon.go
+index 8754492ce..80a2f54f4 100644
+--- a/components/engine/daemon/daemon.go
++++ b/components/engine/daemon/daemon.go
+@@ -416,7 +416,8 @@ func (daemon *Daemon) restore() error {
+ 			if c.IsRunning() || c.IsPaused() {
+ 				c.RestartManager().Cancel() // manually start containers because some need to wait for swarm networking
+ 
+-				if c.IsPaused() && alive {
++				switch {
++				case c.IsPaused() && alive:
+ 					s, err := daemon.containerd.Status(context.Background(), c.ID)
+ 					if err != nil {
+ 						logrus.WithError(err).WithField("container", c.ID).
+@@ -437,6 +438,7 @@ func (daemon *Daemon) restore() error {
+ 							c.Lock()
+ 							c.Paused = false
+ 							daemon.setStateCounter(c)
++							daemon.updateHealthMonitor(c)
+ 							if err := c.CheckpointTo(daemon.containersReplica); err != nil {
+ 								logrus.WithError(err).WithField("container", c.ID).
+ 									Error("Failed to update stopped container state")
+@@ -444,6 +446,11 @@ func (daemon *Daemon) restore() error {
+ 							c.Unlock()
+ 						}
+ 					}
++				case !c.IsPaused() && alive:
++					logrus.Debug("restoring healthcheck")
++					c.Lock()
++					daemon.updateHealthMonitor(c)
++					c.Unlock()
+ 				}
+ 
+ 				if !alive {
+-- 
+2.33.0
+

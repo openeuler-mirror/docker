@@ -1,0 +1,59 @@
+From 2d1f0bc85e2d596d7cd566fe32d85ecd394af50d Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:32:58 +0800
+Subject: [PATCH 04/10] =?UTF-8?q?Fixed=20the=20inconsistence=20and=20also?=
+ =?UTF-8?q?=20a=20potential=20data=20race=20in=20pkg/ioutils=E2=80=A6=20?=
+ =?UTF-8?q?=E2=80=A6/bytespipe.go:=20bp.closeErr=20is=20read/write=208=20t?=
+ =?UTF-8?q?imes;=207=20out=20of=208=20times=20it=20is=20protected=20by=20b?=
+ =?UTF-8?q?p.mu.Lock();=201=20out=20of=208=20times=20it=20is=20read=20with?=
+ =?UTF-8?q?out=20a=20Lock?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: lzhfromutsc <lzhfromustc@gmail.com>
+Upstream-commit: c2479f6ebf288fe8660ea64f51ac80cfdda3011d
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/cae76642b61f2306c610c91900fd8100967197fe
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ components/engine/pkg/ioutils/bytespipe.go | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/components/engine/pkg/ioutils/bytespipe.go b/components/engine/pkg/ioutils/bytespipe.go
+index e04a5bf51..bd57e5fbb 100644
+--- a/components/engine/pkg/ioutils/bytespipe.go
++++ b/components/engine/pkg/ioutils/bytespipe.go
+@@ -29,11 +29,11 @@ var (
+ // and releases new byte slices to adjust to current needs, so the buffer
+ // won't be overgrown after peak loads.
+ type BytesPipe struct {
+-	mu       sync.Mutex
+-	wait     *sync.Cond
+-	buf      []*fixedBuffer
+-	bufLen   int
+-	closeErr error // error to return from next Read. set to nil if not closed.
++	mu        sync.Mutex
++	wait      *sync.Cond
++	buf       []*fixedBuffer
++	bufLen    int
++	closeErr  error // error to return from next Read. set to nil if not closed.
+ 	readBlock bool  // check read BytesPipe is Wait() or not
+ }
+ 
+@@ -132,8 +132,9 @@ func (bp *BytesPipe) Read(p []byte) (n int, err error) {
+ 	bp.mu.Lock()
+ 	if bp.bufLen == 0 {
+ 		if bp.closeErr != nil {
++			err := bp.closeErr
+ 			bp.mu.Unlock()
+-			return 0, bp.closeErr
++			return 0, err
+ 		}
+ 		bp.readBlock = true
+ 		bp.wait.Wait()
+-- 
+2.33.0
+

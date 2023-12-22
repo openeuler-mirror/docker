@@ -1,0 +1,33 @@
+From 3b9d957c2a590f54eb03b37c48e8c1a911430ed6 Mon Sep 17 00:00:00 2001
+From: Song Zhang <zhangsong34@huawei.com>
+Date: Mon, 18 Dec 2023 20:50:54 +0800
+Subject: [PATCH 08/10] Update daemon_linux.go for preventing off-by-one Array
+ length should be bigger than 5, when accessing index 4
+
+Signed-off-by: J-jaeyoung <jjy600901@gmail.com>
+Upstream-commit: 19eda6b9a2991733a7e5b8fb0c435bf55846461f
+Component: engine
+
+Reference: https://github.com/docker/docker-ce/commit/f89fd3df7d5c4a63fed8e47ece566fa2d1db681d
+
+Signed-off-by: Song Zhang <zhangsong34@huawei.com>
+---
+ components/engine/daemon/daemon_linux.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/components/engine/daemon/daemon_linux.go b/components/engine/daemon/daemon_linux.go
+index 6a5790b4f..ed23bf30d 100644
+--- a/components/engine/daemon/daemon_linux.go
++++ b/components/engine/daemon/daemon_linux.go
+@@ -49,7 +49,7 @@ func (daemon *Daemon) cleanupMountsFromReaderByID(reader io.Reader, id string, u
+ 	regexps := getCleanPatterns(id)
+ 	sc := bufio.NewScanner(reader)
+ 	for sc.Scan() {
+-		if fields := strings.Fields(sc.Text()); len(fields) >= 4 {
++		if fields := strings.Fields(sc.Text()); len(fields) > 4 {
+ 			if mnt := fields[4]; strings.HasPrefix(mnt, daemon.root) {
+ 				for _, p := range regexps {
+ 					if p.MatchString(mnt) {
+-- 
+2.33.0
+
